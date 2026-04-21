@@ -1,0 +1,35 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+j9s
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache directory
+.j9s/
+
+# Debug
+__debug_bin*
