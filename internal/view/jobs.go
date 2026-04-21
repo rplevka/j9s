@@ -86,6 +86,8 @@ func (v *JobsView) bindKeys() {
 	v.actions.Bulk(ui.KeyMap{
 		tcell.KeyEnter: ui.NewKeyAction("Builds", v.enterCmd, true),
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
+		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
+		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyT:        ui.NewKeyAction("Trigger", v.triggerCmd, true),
 		ui.KeyE:        ui.NewKeyAction("Enable", v.enableCmd, true),
 		ui.KeyShiftD:   ui.NewKeyAction("Disable", v.disableCmd, true),
@@ -190,6 +192,12 @@ func (v *JobsView) renderJobs(jobs []client.Job) {
 	}
 
 	v.table.SetData(rows)
+	// Set title with folder path if in a subfolder
+	title := "Jobs"
+	if v.folderPath != "" {
+		title = "Jobs:" + v.folderPath
+	}
+	v.table.SetTitle(title)
 	v.table.Refresh()
 }
 
@@ -244,6 +252,64 @@ func (v *JobsView) describeCmd(*tcell.EventKey) *tcell.EventKey {
 	}
 	descView := NewDescribeView(v.app, "job", fullJobName)
 	v.app.Content.Push(descView)
+	return nil
+}
+
+func (v *JobsView) artifactsCmd(*tcell.EventKey) *tcell.EventKey {
+	jobName := v.table.GetSelectedID()
+	if jobName == "" {
+		return nil
+	}
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
+
+	// Find the selected job to get last build number
+	var selectedJob *client.Job
+	for i := range v.jobs {
+		if v.jobs[i].Name == jobName {
+			selectedJob = &v.jobs[i]
+			break
+		}
+	}
+	if selectedJob == nil || selectedJob.LastBuild == nil {
+		v.app.Flash().Warn("No builds available for this job")
+		return nil
+	}
+
+	artifactsView := NewArtifactsView(v.app, fullJobName, selectedJob.LastBuild.Number)
+	v.app.Content.Push(artifactsView)
+	return nil
+}
+
+func (v *JobsView) logsCmd(*tcell.EventKey) *tcell.EventKey {
+	jobName := v.table.GetSelectedID()
+	if jobName == "" {
+		return nil
+	}
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
+
+	// Find the selected job to get last build number
+	var selectedJob *client.Job
+	for i := range v.jobs {
+		if v.jobs[i].Name == jobName {
+			selectedJob = &v.jobs[i]
+			break
+		}
+	}
+	if selectedJob == nil || selectedJob.LastBuild == nil {
+		v.app.Flash().Warn("No builds available for this job")
+		return nil
+	}
+
+	logsView := NewLogsView(v.app, fullJobName, selectedJob.LastBuild.Number)
+	v.app.Content.Push(logsView)
 	return nil
 }
 

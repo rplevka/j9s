@@ -64,6 +64,7 @@ func (v *BuildsView) bindKeys() {
 		tcell.KeyEnter: ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
+		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
 		ui.KeyS:        ui.NewKeyAction("Stop", v.stopCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Rebuild", v.rebuildCmd, true),
@@ -138,6 +139,7 @@ func (v *BuildsView) renderBuilds(builds []client.Build) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Builds:" + v.jobName)
 	v.table.Refresh()
 }
 
@@ -158,6 +160,16 @@ func (v *BuildsView) describeCmd(*tcell.EventKey) *tcell.EventKey {
 	}
 	descView := NewDescribeView(v.app, "build", fmt.Sprintf("%s#%d", v.jobName, buildNum))
 	v.app.Content.Push(descView)
+	return nil
+}
+
+func (v *BuildsView) artifactsCmd(*tcell.EventKey) *tcell.EventKey {
+	buildNum := v.getSelectedBuildNumber()
+	if buildNum <= 0 {
+		return nil
+	}
+	artifactsView := NewArtifactsView(v.app, v.jobName, buildNum)
+	v.app.Content.Push(artifactsView)
 	return nil
 }
 

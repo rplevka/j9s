@@ -102,6 +102,7 @@ func (v *ViewsView) renderViews(views []client.View) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Views")
 	v.table.Refresh()
 }
 

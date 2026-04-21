@@ -103,6 +103,7 @@ func (v *CredentialsView) renderCredentials(creds []client.Credential) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Credentials")
 	v.table.Refresh()
 }
 

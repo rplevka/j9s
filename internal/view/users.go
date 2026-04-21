@@ -102,6 +102,7 @@ func (v *UsersView) renderUsers(users []client.User) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Users")
 	v.table.Refresh()
 }
 

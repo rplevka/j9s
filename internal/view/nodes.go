@@ -118,6 +118,7 @@ func (v *NodesView) renderNodes(nodes []client.Node) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Nodes")
 	v.table.Refresh()
 }
 

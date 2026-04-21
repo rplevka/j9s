@@ -108,6 +108,7 @@ func (v *PluginsView) renderPlugins(plugins []client.Plugin) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Plugins")
 	v.table.Refresh()
 }
 

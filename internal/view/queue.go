@@ -106,6 +106,7 @@ func (v *QueueView) renderQueue(items []client.QueueItem) {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Queue")
 	v.table.Refresh()
 }
 

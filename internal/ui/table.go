@@ -5,6 +5,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -49,7 +50,34 @@ func NewTable() *Table {
 	t.SetSelectable(true, false)
 	t.SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorNavy).Foreground(tcell.ColorWhite))
 	t.SetFixed(1, 0) // Keep header row fixed (always visible)
+	// Add border and title like k9s
+	t.SetBorder(true)
+	t.SetBorderColor(tcell.ColorAqua)
+	t.SetBorderPadding(0, 0, 1, 1)
+	t.SetTitleColor(tcell.ColorAqua)
+	t.SetTitleAlign(tview.AlignLeft)
 	return &t
+}
+
+// SetTitle sets the table title with count.
+func (t *Table) SetTitle(title string) {
+	t.Table.SetTitle(t.styleTitle(title))
+}
+
+// styleTitle formats the title with styling.
+func (t *Table) styleTitle(title string) string {
+	rc := t.RowCount()
+	filter := t.GetFilter()
+
+	// Format: " Title (count) "
+	styled := fmt.Sprintf(" [aqua::b]%s[white::d][[aqua::b]%d[white::d]] ", title, rc)
+
+	// Add filter indicator if active
+	if filter != "" {
+		styled += fmt.Sprintf("[white::d]|[aqua::b]/%s ", filter)
+	}
+
+	return styled
 }
 
 // Init initializes the table.

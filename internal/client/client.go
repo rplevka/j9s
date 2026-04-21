@@ -895,3 +895,39 @@ func (c *Client) GetView(ctx context.Context, name string) (*View, error) {
 
 	return &view, nil
 }
+
+// GetBuildArtifacts returns the list of artifacts for a build.
+func (c *Client) GetBuildArtifacts(ctx context.Context, jobName string, buildNumber int) ([]Artifact, error) {
+	build, err := c.GetBuild(ctx, jobName, buildNumber)
+	if err != nil {
+		return nil, err
+	}
+	return build.Artifacts, nil
+}
+
+// DownloadArtifact downloads an artifact and returns its content.
+func (c *Client) DownloadArtifact(ctx context.Context, jobName string, buildNumber int, relativePath string) ([]byte, error) {
+	path := fmt.Sprintf("%s/%d/artifact/%s", jobPath(jobName), buildNumber, relativePath)
+	return c.getRaw(ctx, path)
+}
+
+// getRaw performs a GET request and returns raw bytes (not expecting JSON).
+func (c *Client) getRaw(ctx context.Context, path string) ([]byte, error) {
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// GetArtifactURL returns the full URL for downloading an artifact.
+func (c *Client) GetArtifactURL(jobName string, buildNumber int, relativePath string) string {
+	return fmt.Sprintf("%s%s/%d/artifact/%s", c.baseURL, jobPath(jobName), buildNumber, relativePath)
+}

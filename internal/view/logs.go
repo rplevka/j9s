@@ -6,6 +6,8 @@ package view
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -35,6 +37,7 @@ type LogsView struct {
 	filter        string
 	autoScroll    bool
 	wrapEnabled   bool // Line wrap state
+	fullScreen    bool // Full screen mode
 	cancelFn      context.CancelFunc
 	logLines      []string // Store log lines for filtering
 	lastKey       rune     // Track last key for vim-style sequences (gg)
@@ -62,9 +65,17 @@ func NewLogsView(app *App, jobName string, buildNum int) *LogsView {
 	v.textView.SetScrollable(true)
 	v.textView.SetBackgroundColor(tcell.ColorDefault)
 	v.textView.SetWrap(v.wrapEnabled)
+	v.textView.SetBorderPadding(0, 0, 1, 1)
+
+	// Add border and title like k9s
+	v.SetBorder(true)
+	v.SetBorderColor(tcell.ColorAqua)
+	v.SetTitleColor(tcell.ColorAqua)
+	v.SetTitleAlign(tview.AlignLeft)
 
 	v.AddItem(v.textView, 0, 1, true)
 	v.bindKeys()
+	v.updateTitle()
 	v.startStreaming()
 
 	return v
@@ -89,17 +100,25 @@ func (v *LogsView) bindKeys() {
 			}
 			v.app.Stop()
 			return nil
+		}, false), // Hidden from hints
+		ui.KeyQuestion: ui.NewKeyAction("Help", func(*tcell.EventKey) *tcell.EventKey {
+			v.app.Content.Push(NewHelpView(v.app, v.actions))
+			return nil
 		}, true),
-		ui.KeySlash:  ui.NewKeyAction("Filter", v.filterCmd, true),
-		ui.KeyShiftG: ui.NewKeyAction("Bottom", v.bottomCmd, true),
-		ui.KeyG:      ui.NewKeyAction("Top (gg)", nil, true), // Just for hint, handled in input capture
-		ui.KeyW:      ui.NewKeyAction("Wrap", v.toggleWrapCmd, true),
-		ui.KeyS:      ui.NewKeyAction("AutoScroll", v.toggleScrollCmd, true),
-		ui.KeyC:      ui.NewKeyAction("Clear", v.clearFilterCmd, true),
-		ui.KeyQ:      ui.NewKeyAction("Back", v.backCmd, true),
-		tcell.KeyEsc: ui.NewKeyAction("Back", v.backCmd, false), // Not visible in menu
-		ui.Key0:      ui.NewKeyAction("Tail", v.tailCmd, true),
-		ui.Key1:      ui.NewKeyAction("Head", v.headCmd, true),
+		ui.KeySlash:    ui.NewKeyAction("Filter", v.filterCmd, true),
+		ui.KeyShiftG:   ui.NewKeyAction("Bottom", v.bottomCmd, true),
+		ui.KeyG:        ui.NewKeyAction("Top (gg)", nil, true), // Just for hint, handled in input capture
+		ui.KeyW:        ui.NewKeyAction("Wrap", v.toggleWrapCmd, true),
+		ui.KeyS:        ui.NewKeyAction("AutoScroll", v.toggleScrollCmd, true),
+		ui.KeyShiftC:   ui.NewKeyAction("Clear", v.clearFilterCmd, true),
+		ui.KeyC:        ui.NewKeyAction("Copy", v.copyCmd, true),
+		ui.KeyF:        ui.NewKeyAction("FullScreen", v.toggleFullScreenCmd, true),
+		ui.KeyM:        ui.NewKeyAction("Mark", v.markCmd, true),
+		tcell.KeyCtrlS: ui.NewKeyAction("Save", v.saveCmd, true),
+		ui.KeyQ:        ui.NewKeyAction("Back", v.backCmd, true),
+		tcell.KeyEsc:   ui.NewKeyAction("Back", v.backCmd, false), // Not visible in menu
+		ui.Key0:        ui.NewKeyAction("Tail", v.tailCmd, true),
+		ui.Key1:        ui.NewKeyAction("Head", v.headCmd, true),
 	})
 
 	v.textView.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
@@ -569,8 +588,84 @@ func (v *LogsView) tailCmd(*tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
-func (v *LogsView) fullScreenCmd(*tcell.EventKey) *tcell.EventKey {
-	// TODO: Toggle full screen mode
+// updateTitle updates the view title with current state.
+func (v *LogsView) updateTitle() {
+	title := fmt.Sprintf(" [aqua::b]Logs[white::d]([aqua::b]%s[white::d]#[aqua::b]%d[white::d]) ", v.jobName, v.buildNum)
+
+	// Add filter indicator if active
+	if v.filter != "" {
+		title += fmt.Sprintf("[white::d]|[aqua::b]/%s ", v.filter)
+	}
+
+	// Add state indicators
+	var indicators []string
+	if v.autoScroll {
+		indicators = append(indicators, "[green::b]↓")
+	}
+	if v.wrapEnabled {
+		indicators = append(indicators, "[yellow::b]⏎")
+	}
+	if v.fullScreen {
+		indicators = append(indicators, "[aqua::b]□")
+	}
+	if len(indicators) > 0 {
+		title += "[white::d]" + strings.Join(indicators, " ")
+	}
+
+	v.SetTitle(title)
+}
+
+// toggleFullScreenCmd toggles full screen mode.
+func (v *LogsView) toggleFullScreenCmd(*tcell.EventKey) *tcell.EventKey {
+	v.fullScreen = !v.fullScreen
+	v.SetFullScreen(v.fullScreen)
+	v.SetBorder(!v.fullScreen)
+	if v.fullScreen {
+		v.textView.SetBorderPadding(0, 0, 0, 0)
+		v.app.Flash().Info("Full screen enabled")
+	} else {
+		v.textView.SetBorderPadding(0, 0, 1, 1)
+		v.app.Flash().Info("Full screen disabled")
+	}
+	v.updateTitle()
+	return nil
+}
+
+// copyCmd copies log content to clipboard.
+func (v *LogsView) copyCmd(*tcell.EventKey) *tcell.EventKey {
+	text := v.textView.GetText(true)
+	if err := clipboardWrite(text); err != nil {
+		v.app.Flash().Err(err)
+		return nil
+	}
+	v.app.Flash().Info("Log copied to clipboard")
+	return nil
+}
+
+// markCmd adds a visual marker line in the log.
+func (v *LogsView) markCmd(*tcell.EventKey) *tcell.EventKey {
+	_, _, w, _ := v.GetRect()
+	marker := strings.Repeat("─", w-4)
+	fmt.Fprintf(v.textView, "[yellow::b]%s[-:-:-]\n", marker)
+	v.autoScroll = true
+	v.app.Flash().Info("Mark added")
+	return nil
+}
+
+// saveCmd saves the log to a file.
+func (v *LogsView) saveCmd(*tcell.EventKey) *tcell.EventKey {
+	text := v.textView.GetText(true)
+	filename := fmt.Sprintf("%s-%d-%d.log", v.jobName, v.buildNum, time.Now().Unix())
+
+	// Save to current directory or home
+	homeDir, _ := os.UserHomeDir()
+	path := filepath.Join(homeDir, filename)
+
+	if err := os.WriteFile(path, []byte(text), 0644); err != nil {
+		v.app.Flash().Err(err)
+		return nil
+	}
+	v.app.Flash().Info(fmt.Sprintf("Log saved to %s", path))
 	return nil
 }
 
@@ -582,6 +677,7 @@ func (v *LogsView) toggleWrapCmd(*tcell.EventKey) *tcell.EventKey {
 	} else {
 		v.app.Flash().Info("Line wrap disabled")
 	}
+	v.updateTitle()
 	return nil
 }
 
@@ -592,6 +688,7 @@ func (v *LogsView) toggleScrollCmd(*tcell.EventKey) *tcell.EventKey {
 	} else {
 		v.app.Flash().Info("Auto-scroll disabled")
 	}
+	v.updateTitle()
 	return nil
 }
 

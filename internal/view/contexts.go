@@ -84,6 +84,7 @@ func (v *ContextsView) refresh() {
 	}
 
 	v.table.SetData(rows)
+	v.table.SetTitle("Contexts")
 	v.table.Refresh()
 }
 
