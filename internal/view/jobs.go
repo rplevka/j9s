@@ -88,6 +88,7 @@ func (v *JobsView) bindKeys() {
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
 		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
+		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
 		ui.KeyT:        ui.NewKeyAction("Trigger", v.triggerCmd, true),
 		ui.KeyE:        ui.NewKeyAction("Enable", v.enableCmd, true),
 		ui.KeyShiftD:   ui.NewKeyAction("Disable", v.disableCmd, true),
@@ -310,6 +311,41 @@ func (v *JobsView) logsCmd(*tcell.EventKey) *tcell.EventKey {
 
 	logsView := NewLogsView(v.app, fullJobName, selectedJob.LastBuild.Number)
 	v.app.Content.Push(logsView)
+	return nil
+}
+
+func (v *JobsView) viewsCmd(*tcell.EventKey) *tcell.EventKey {
+	jobName := v.table.GetSelectedID()
+	if jobName == "" {
+		return nil
+	}
+
+	// Find the selected job to check if it's a folder
+	var selectedJob *client.Job
+	for i := range v.jobs {
+		if v.jobs[i].Name == jobName {
+			selectedJob = &v.jobs[i]
+			break
+		}
+	}
+	if selectedJob == nil {
+		return nil
+	}
+
+	// Only folders have views
+	if !selectedJob.IsFolder() {
+		v.app.Flash().Warn("Only folders have views")
+		return nil
+	}
+
+	// Include folder path for nested folders
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
+
+	viewsView := NewViewsViewWithPath(v.app, fullJobName)
+	v.app.Content.Push(viewsView)
 	return nil
 }
 

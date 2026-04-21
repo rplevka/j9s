@@ -863,9 +863,21 @@ func (c *Client) GetPlugins(ctx context.Context) ([]Plugin, error) {
 	return result.Plugins, nil
 }
 
-// GetViews returns all views.
+// GetViews returns all views at the root level.
 func (c *Client) GetViews(ctx context.Context) ([]View, error) {
-	data, err := c.get(ctx, "/api/json?tree=views[name,url,description]")
+	return c.GetFolderViews(ctx, "")
+}
+
+// GetFolderViews returns views for a folder (or root if folderPath is empty).
+func (c *Client) GetFolderViews(ctx context.Context, folderPath string) ([]View, error) {
+	var path string
+	if folderPath == "" {
+		path = "/api/json?tree=views[name,url,description]"
+	} else {
+		path = jobPath(folderPath) + "/api/json?tree=views[name,url,description]"
+	}
+
+	data, err := c.get(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -880,9 +892,20 @@ func (c *Client) GetViews(ctx context.Context) ([]View, error) {
 	return result.Views, nil
 }
 
-// GetView returns a specific view with its jobs.
+// GetView returns a specific view with its jobs at the root level.
 func (c *Client) GetView(ctx context.Context, name string) (*View, error) {
-	path := fmt.Sprintf("/view/%s/api/json?tree=name,url,description,jobs[name,url,fullName,displayName,color,buildable,inQueue,lastBuild[number,result,timestamp,building],healthReport[description,score]]", url.PathEscape(name))
+	return c.GetFolderView(ctx, "", name)
+}
+
+// GetFolderView returns a specific view with its jobs from a folder (or root if folderPath is empty).
+func (c *Client) GetFolderView(ctx context.Context, folderPath, viewName string) (*View, error) {
+	var path string
+	if folderPath == "" {
+		path = fmt.Sprintf("/view/%s/api/json?tree=name,url,description,jobs[_class,name,url,fullName,displayName,color,buildable,inQueue,lastBuild[number,result,timestamp,building],healthReport[description,score]]", url.PathEscape(viewName))
+	} else {
+		path = fmt.Sprintf("%s/view/%s/api/json?tree=name,url,description,jobs[_class,name,url,fullName,displayName,color,buildable,inQueue,lastBuild[number,result,timestamp,building],healthReport[description,score]]", jobPath(folderPath), url.PathEscape(viewName))
+	}
+
 	data, err := c.get(ctx, path)
 	if err != nil {
 		return nil, err

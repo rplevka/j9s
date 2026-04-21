@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
+	"github.com/roman-plevka/j9s/internal/client"
 	"github.com/roman-plevka/j9s/internal/model"
 	"github.com/roman-plevka/j9s/internal/ui"
 )
@@ -131,15 +133,119 @@ func (v *DescribeView) refresh() {
 				v.app.Flash().Err(err)
 				v.textView.SetContent(fmt.Sprintf("Error: %v", err))
 			} else {
-				v.textView.SetContent(content)
+				// Use SetContentWithColors for build details which have color tags
+				if v.resourceType == "build" {
+					v.textView.SetContentWithColors(content)
+				} else {
+					v.textView.SetContent(content)
+				}
 			}
 		})
 	}()
 }
 
 func (v *DescribeView) formatBuildDetails(build interface{}) string {
-	// Format build details as YAML-like output
-	return fmt.Sprintf("%+v", build)
+	b, ok := build.(*client.Build)
+	if !ok {
+		return fmt.Sprintf("%+v", build)
+	}
+
+	var sb strings.Builder
+
+	// Header
+	sb.WriteString(fmt.Sprintf("[aqua::b]Build #%d[-::-]\n", b.Number))
+	sb.WriteString("[gray::]" + strings.Repeat("-", 40) + "[-::]\n\n")
+
+	// Basic Info
+	sb.WriteString("[yellow::b]Basic Information[white::-]\n")
+	sb.WriteString(fmt.Sprintf("  [aqua::b]Name:[-::-]          %s\n", b.FullDisplayName))
+	sb.WriteString(fmt.Sprintf("  [aqua::b]Result:[-::-]        %s\n", colorizeResult(b.Result)))
+	sb.WriteString(fmt.Sprintf("  [aqua::b]Building:[-::-]      %v\n", b.Building))
+	sb.WriteString(fmt.Sprintf("  [aqua::b]Duration:[-::-]      %s\n", formatDuration(time.Duration(b.Duration)*time.Millisecond)))
+	sb.WriteString(fmt.Sprintf("  [aqua::b]Started:[-::-]       %s\n", formatBuildTimestamp(b.Timestamp)))
+	if b.Description != "" {
+		sb.WriteString(fmt.Sprintf("  [aqua::b]Description:[-::-]   %s\n", b.Description))
+	}
+	sb.WriteString(fmt.Sprintf("  [aqua::b]URL:[-::-]           %s\n", b.URL))
+	sb.WriteString("\n")
+
+	// Build Causes
+	for _, action := range b.Actions {
+		if len(action.Causes) > 0 {
+			sb.WriteString("[yellow::b]Build Causes[white::-]\n")
+			for _, cause := range action.Causes {
+				sb.WriteString(fmt.Sprintf("  • %s", cause.ShortDescription))
+				if cause.UserName != "" {
+					sb.WriteString(fmt.Sprintf(" (by [green::]%s[-::])", cause.UserName))
+				}
+				sb.WriteString("\n")
+			}
+			sb.WriteString("\n")
+			break
+		}
+	}
+
+	// Build Parameters
+	for _, action := range b.Actions {
+		if len(action.Parameters) > 0 {
+			sb.WriteString("[yellow::b]Parameters[white::-]\n")
+			for _, param := range action.Parameters {
+				value := fmt.Sprintf("%v", param.Value)
+				if len(value) > 80 {
+					value = value[:77] + "..."
+				}
+				sb.WriteString(fmt.Sprintf("  [aqua::]%s:[-::] %s\n", param.Name, value))
+			}
+			sb.WriteString("\n")
+			break
+		}
+	}
+
+	// Artifacts
+	if len(b.Artifacts) > 0 {
+		sb.WriteString("[yellow::b]Artifacts[white::-]\n")
+		for _, artifact := range b.Artifacts {
+			sb.WriteString(fmt.Sprintf("  📦 %s\n", artifact.FileName))
+			sb.WriteString(fmt.Sprintf("     [gray::]%s[-::]\n", artifact.RelativePath))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Change Sets
+	for _, cs := range b.ChangeSets {
+		if len(cs.Items) > 0 {
+			sb.WriteString(fmt.Sprintf("[yellow::b]Changes (%s)[white::-]\n", cs.Kind))
+			for i, item := range cs.Items {
+				if i >= 10 {
+					sb.WriteString(fmt.Sprintf("  ... and %d more changes\n", len(cs.Items)-10))
+					break
+				}
+				// Truncate commit ID
+				commitID := item.CommitID
+				if len(commitID) > 8 {
+					commitID = commitID[:8]
+				}
+				// Truncate comment to first line
+				comment := strings.Split(item.Comment, "\n")[0]
+				if len(comment) > 60 {
+					comment = comment[:57] + "..."
+				}
+				sb.WriteString(fmt.Sprintf("  [green::]%s[-::] %s\n", commitID, comment))
+				sb.WriteString(fmt.Sprintf("           [gray::]by %s[-::]\n", item.Author.FullName))
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+func formatBuildTimestamp(ts int64) string {
+	if ts == 0 {
+		return "-"
+	}
+	t := time.UnixMilli(ts)
+	return t.Format("2006-01-02 15:04:05")
 }
 
 func (v *DescribeView) topCmd(*tcell.EventKey) *tcell.EventKey {

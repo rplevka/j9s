@@ -5,7 +5,6 @@ package ui
 
 import (
 	"regexp"
-	"strings"
 
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
@@ -14,9 +13,9 @@ import (
 // FilterableTextView is a text view with filtering and highlighting support.
 type FilterableTextView struct {
 	*tview.TextView
-	content   string
-	filter    string
-	actions   *KeyActions
+	content    string
+	filter     string
+	actions    *KeyActions
 	autoScroll bool
 }
 
@@ -43,6 +42,14 @@ func (t *FilterableTextView) Actions() *KeyActions {
 func (t *FilterableTextView) SetContent(content string) {
 	t.content = content
 	t.render()
+}
+
+// SetContentWithColors sets content that contains tview color tags.
+func (t *FilterableTextView) SetContentWithColors(content string) {
+	t.content = content
+	t.TextView.Clear()
+	t.TextView.SetDynamicColors(true)
+	t.TextView.SetText(content)
 }
 
 // AppendContent appends text to the content.
@@ -113,11 +120,12 @@ func (t *FilterableTextView) render() {
 		return
 	}
 
-	// Escape any existing [ characters to prevent them being parsed as color tags
-	escaped := strings.ReplaceAll(t.content, "[", "[[]")
+	// When filtering, we need to strip color tags first, then highlight
+	// This is a trade-off: filtering loses colors but gains search highlighting
+	stripped := stripColorTags(t.content)
 
 	// Highlight matches
-	highlighted := HighlightMatches(escaped, t.filter)
+	highlighted := HighlightMatches(stripped, t.filter)
 	t.SetText(highlighted)
 }
 
