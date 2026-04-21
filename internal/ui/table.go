@@ -6,6 +6,9 @@ package ui
 import (
 	"context"
 	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/derailed/tcell/v2"
@@ -38,12 +41,14 @@ func NewTable() *Table {
 		actions: NewKeyActions(),
 		cmdBuff: model.NewFishBuff('/', model.FilterBuffer),
 		ctx:     context.Background(),
+		sortCol: -1, // No sort column selected initially
 		sortAsc: true,
 	}
 	t.SetBackgroundColor(tcell.ColorDefault)
 	t.SetBorders(false)
 	t.SetSelectable(true, false)
 	t.SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorNavy).Foreground(tcell.ColorWhite))
+	t.SetFixed(1, 0) // Keep header row fixed (always visible)
 	return &t
 }
 
@@ -129,6 +134,13 @@ func (t *Table) ClearFilter() {
 	t.Filter("")
 }
 
+// GetFilter returns the current filter string.
+func (t *Table) GetFilter() string {
+	t.mx.RLock()
+	defer t.mx.RUnlock()
+	return t.filter
+}
+
 func (t *Table) applyFilter() {
 	if t.filter == "" {
 		t.filtered = t.rows
@@ -208,11 +220,29 @@ func (t *Table) Refresh() {
 	t.mx.RLock()
 	defer t.mx.RUnlock()
 
+	// Save current selection
+	currentRow, currentCol := t.GetSelection()
+	var selectedID string
+	if currentRow > 0 && currentRow <= len(t.filtered) {
+		// Save the ID of the selected row to restore it after refresh
+		if len(t.filtered[currentRow-1]) > 0 {
+			selectedID = t.filtered[currentRow-1][0]
+		}
+	}
+
 	t.Clear()
 
-	// Render headers
+	// Render headers with sort indicator
 	for col, h := range t.headers {
-		cell := tview.NewTableCell(h).
+		header := h
+		if t.sortCol >= 0 && col == t.sortCol {
+			if t.sortAsc {
+				header = h + " ↑"
+			} else {
+				header = h + " ↓"
+			}
+		}
+		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
 			SetSelectable(false).
 			SetExpansion(1)
@@ -234,9 +264,26 @@ func (t *Table) Refresh() {
 		}
 	}
 
-	t.ScrollToBeginning()
+	// Restore selection
 	if len(t.filtered) > 0 {
-		t.Select(1, 0)
+		newRow := 1 // Default to first row
+		// Try to find the previously selected item by ID
+		if selectedID != "" {
+			for i, row := range t.filtered {
+				if len(row) > 0 && row[0] == selectedID {
+					newRow = i + 1
+					break
+				}
+			}
+		} else if currentRow > 0 {
+			// Fall back to same row number if possible
+			newRow = currentRow
+		}
+		// Clamp to valid range
+		if newRow > len(t.filtered) {
+			newRow = len(t.filtered)
+		}
+		t.Select(newRow, currentCol)
 	}
 }
 
@@ -267,4 +314,87 @@ func (t *Table) RowCount() int {
 	t.mx.RLock()
 	defer t.mx.RUnlock()
 	return len(t.filtered)
+}
+
+// SortColCmd returns a command to sort by a specific column.
+func (t *Table) SortColCmd(colIdx int) func(*tcell.EventKey) *tcell.EventKey {
+	return func(*tcell.EventKey) *tcell.EventKey {
+		t.SortByColumn(colIdx)
+		return nil
+	}
+}
+
+// SortByColumn sorts the table by the specified column index.
+func (t *Table) SortByColumn(colIdx int) {
+	t.mx.Lock()
+	defer t.mx.Unlock()
+
+	if colIdx < 0 || colIdx >= len(t.headers) {
+		return
+	}
+
+	// Toggle sort order if same column, otherwise default to ascending
+	if t.sortCol == colIdx {
+		t.sortAsc = !t.sortAsc
+	} else {
+		t.sortCol = colIdx
+		t.sortAsc = true
+	}
+
+	t.sortData()
+}
+
+// ToggleSortOrder toggles the sort order for the current column.
+func (t *Table) ToggleSortOrder() {
+	t.mx.Lock()
+	defer t.mx.Unlock()
+	t.sortAsc = !t.sortAsc
+	t.sortData()
+}
+
+// sortData sorts the filtered data by the current sort column.
+func (t *Table) sortData() {
+	if len(t.filtered) == 0 || t.sortCol < 0 {
+		return
+	}
+
+	sort.SliceStable(t.filtered, func(i, j int) bool {
+		if t.sortCol >= len(t.filtered[i]) || t.sortCol >= len(t.filtered[j]) {
+			return false
+		}
+
+		a := stripColorTags(t.filtered[i][t.sortCol])
+		b := stripColorTags(t.filtered[j][t.sortCol])
+
+		// Try numeric comparison first
+		aNum, aErr := strconv.ParseFloat(a, 64)
+		bNum, bErr := strconv.ParseFloat(b, 64)
+		if aErr == nil && bErr == nil {
+			if t.sortAsc {
+				return aNum < bNum
+			}
+			return aNum > bNum
+		}
+
+		// Fall back to string comparison (case-insensitive)
+		cmp := strings.Compare(strings.ToLower(a), strings.ToLower(b))
+		if t.sortAsc {
+			return cmp < 0
+		}
+		return cmp > 0
+	})
+}
+
+// stripColorTags removes tview color tags from a string for comparison.
+func stripColorTags(s string) string {
+	// Remove color tags like [red::b], [-::-], [yellow], etc.
+	re := regexp.MustCompile(`\[[^\]]*\]`)
+	return re.ReplaceAllString(s, "")
+}
+
+// GetSortInfo returns the current sort column and order.
+func (t *Table) GetSortInfo() (int, bool) {
+	t.mx.RLock()
+	defer t.mx.RUnlock()
+	return t.sortCol, t.sortAsc
 }

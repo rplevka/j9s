@@ -6,7 +6,6 @@ package view
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"time"
 
 	"github.com/derailed/tcell/v2"
@@ -19,12 +18,13 @@ import (
 // JobsView displays Jenkins jobs.
 type JobsView struct {
 	*tview.Flex
-	app        *App
-	table      *ui.Table
-	actions    *ui.KeyActions
-	folderPath string       // Current folder path (empty for root)
-	jobs       []client.Job // Current jobs list (for filtering)
-	filter     string       // Current filter
+	app         *App
+	table       *ui.Table
+	actions     *ui.KeyActions
+	folderPath  string       // Current folder path (empty for root)
+	jobs        []client.Job // Current jobs list
+	autoRefresh *time.Ticker
+	stopRefresh chan struct{}
 }
 
 // NewJobsView returns a new jobs view.
@@ -35,15 +35,17 @@ func NewJobsView(app *App) *JobsView {
 // NewJobsViewWithPath returns a new jobs view for a specific folder.
 func NewJobsViewWithPath(app *App, folderPath string) *JobsView {
 	v := &JobsView{
-		Flex:       tview.NewFlex().SetDirection(tview.FlexRow),
-		app:        app,
-		table:      ui.NewTable(),
-		actions:    ui.NewKeyActions(),
-		folderPath: folderPath,
+		Flex:        tview.NewFlex().SetDirection(tview.FlexRow),
+		app:         app,
+		table:       ui.NewTable(),
+		actions:     ui.NewKeyActions(),
+		folderPath:  folderPath,
+		stopRefresh: make(chan struct{}),
 	}
 	v.AddItem(v.table, 0, 1, true)
 	v.bindKeys()
 	v.refresh()
+	v.startAutoRefresh()
 
 	return v
 }
@@ -66,16 +68,14 @@ func (v *JobsView) Hints() model.MenuHints {
 	return v.actions.Hints()
 }
 
-// SetFilter sets the filter and re-renders the jobs.
+// SetFilter sets the filter using the table's built-in filtering.
 func (v *JobsView) SetFilter(filter string) {
-	v.filter = filter
-	v.table.SetHighlight(filter) // Set highlight for matching text
-	v.renderJobs(v.filterJobs(v.jobs))
+	v.table.Filter(filter)
 }
 
 // GetFilter returns the current filter.
 func (v *JobsView) GetFilter() string {
-	return v.filter
+	return v.table.GetFilter()
 }
 
 func (v *JobsView) bindKeys() {
@@ -91,6 +91,10 @@ func (v *JobsView) bindKeys() {
 		ui.KeyShiftD:   ui.NewKeyAction("Disable", v.disableCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		tcell.KeyCtrlD: ui.NewKeyAction("Delete", v.deleteCmd, true),
+		// Sorting shortcuts
+		ui.KeyShiftN: ui.NewKeyAction("Sort Name", v.sortByNameCmd, true),
+		ui.KeyShiftS: ui.NewKeyAction("Sort Status", v.sortByStatusCmd, true),
+		ui.KeyShiftA: ui.NewKeyAction("Sort Age", v.sortByAgeCmd, true),
 	})
 
 	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
@@ -130,60 +134,9 @@ func (v *JobsView) refresh() {
 
 		v.app.QueueUpdateDraw(func() {
 			v.jobs = jobs
-			v.renderJobs(v.filterJobs(jobs))
+			v.renderJobs(jobs)
 		})
 	}()
-}
-
-func (v *JobsView) filterJobs(jobs []client.Job) []client.Job {
-	if v.filter == "" {
-		return jobs
-	}
-
-	// Try to compile as regex, fall back to substring match
-	rx, err := regexp.Compile("(?i)" + v.filter)
-	useRegex := err == nil
-
-	filtered := make([]client.Job, 0)
-	for _, job := range jobs {
-		var matches bool
-		if useRegex {
-			matches = rx.MatchString(job.Name)
-		} else {
-			matches = containsIgnoreCase(job.Name, v.filter)
-		}
-		if matches {
-			filtered = append(filtered, job)
-		}
-	}
-	return filtered
-}
-
-func containsIgnoreCase(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(substr == "" ||
-			len(s) > 0 && containsLower(toLower(s), toLower(substr)))
-}
-
-func toLower(s string) string {
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		result[i] = c
-	}
-	return string(result)
-}
-
-func containsLower(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func (v *JobsView) renderJobs(jobs []client.Job) {
@@ -305,17 +258,8 @@ func (v *JobsView) triggerCmd(*tcell.EventKey) *tcell.EventKey {
 		fullJobName = v.folderPath + "/" + jobName
 	}
 
-	go func() {
-		err := v.app.Client().TriggerBuild(context.Background(), fullJobName, nil)
-		v.app.QueueUpdateDraw(func() {
-			if err != nil {
-				v.app.Flash().Err(err)
-			} else {
-				v.app.Flash().Info(fmt.Sprintf("Build triggered for %s", fullJobName))
-			}
-			v.refresh()
-		})
-	}()
+	// Show parameter form (handles both parameterized and non-parameterized jobs)
+	ShowParamsForm(v.app, fullJobName, false)
 	return nil
 }
 
@@ -455,4 +399,56 @@ func formatAge(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// startAutoRefresh starts the auto-refresh timer.
+func (v *JobsView) startAutoRefresh() {
+	rate := float32(2) // default 2 seconds
+	if v.app.Config() != nil && v.app.Config().J9s.RefreshRate > 0 {
+		rate = v.app.Config().J9s.RefreshRate
+	}
+
+	v.autoRefresh = time.NewTicker(time.Duration(rate) * time.Second)
+
+	go func() {
+		for {
+			select {
+			case <-v.stopRefresh:
+				return
+			case <-v.autoRefresh.C:
+				v.refresh()
+			}
+		}
+	}()
+}
+
+// Stop stops the auto-refresh timer.
+func (v *JobsView) Stop() {
+	if v.autoRefresh != nil {
+		v.autoRefresh.Stop()
+		v.autoRefresh = nil
+	}
+	if v.stopRefresh != nil {
+		close(v.stopRefresh)
+		v.stopRefresh = nil
+	}
+}
+
+// Sorting commands - columns: NAME(0), TYPE(1), STATUS(2), HEALTH(3), LAST BUILD(4), RESULT(5), AGE(6)
+func (v *JobsView) sortByNameCmd(*tcell.EventKey) *tcell.EventKey {
+	v.table.SortByColumn(0)
+	v.table.Refresh()
+	return nil
+}
+
+func (v *JobsView) sortByStatusCmd(*tcell.EventKey) *tcell.EventKey {
+	v.table.SortByColumn(2)
+	v.table.Refresh()
+	return nil
+}
+
+func (v *JobsView) sortByAgeCmd(*tcell.EventKey) *tcell.EventKey {
+	v.table.SortByColumn(6)
+	v.table.Refresh()
+	return nil
 }

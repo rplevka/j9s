@@ -198,7 +198,8 @@ func (a *KeyActions) Hints() model.MenuHints {
 
 	hh := make(model.MenuHints, 0, len(kk))
 	for _, k := range kk {
-		if name, ok := tcell.KeyNames[k]; ok {
+		name := keyName(k)
+		if name != "" {
 			hh = append(hh,
 				model.MenuHint{
 					Mnemonic:    name,
@@ -210,4 +211,17 @@ func (a *KeyActions) Hints() model.MenuHints {
 	}
 
 	return hh
+}
+
+// keyName returns a human-readable name for a key.
+func keyName(k tcell.Key) string {
+	// Check tcell's built-in key names first
+	if name, ok := tcell.KeyNames[k]; ok {
+		return name
+	}
+	// For rune-based keys (letters, numbers, symbols)
+	if k >= 32 && k < 127 {
+		return string(rune(k))
+	}
+	return ""
 }

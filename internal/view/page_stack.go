@@ -63,6 +63,11 @@ func (p *PageStack) Push(c model.Component) {
 	p.notifyPush(c)
 }
 
+// Stoppable is an interface for components that can be stopped.
+type Stoppable interface {
+	Stop()
+}
+
 // Pop pops a component from the stack.
 func (p *PageStack) Pop() model.Component {
 	if len(p.stack) == 0 {
@@ -72,6 +77,11 @@ func (p *PageStack) Pop() model.Component {
 	old := p.stack[len(p.stack)-1]
 	p.stack = p.stack[:len(p.stack)-1]
 	p.RemovePage(old.Name())
+
+	// Stop the component if it implements Stoppable (e.g., auto-refresh)
+	if stoppable, ok := old.(Stoppable); ok {
+		stoppable.Stop()
+	}
 
 	var top model.Component
 	if len(p.stack) > 0 {

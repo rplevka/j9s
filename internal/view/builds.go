@@ -19,24 +19,28 @@ import (
 // BuildsView displays Jenkins builds for a job.
 type BuildsView struct {
 	*tview.Flex
-	app     *App
-	table   *ui.Table
-	actions *ui.KeyActions
-	jobName string
+	app         *App
+	table       *ui.Table
+	actions     *ui.KeyActions
+	jobName     string
+	autoRefresh *time.Ticker
+	stopRefresh chan struct{}
 }
 
 // NewBuildsView returns a new builds view.
 func NewBuildsView(app *App, jobName string) *BuildsView {
 	v := &BuildsView{
-		Flex:    tview.NewFlex().SetDirection(tview.FlexRow),
-		app:     app,
-		table:   ui.NewTable(),
-		actions: ui.NewKeyActions(),
-		jobName: jobName,
+		Flex:        tview.NewFlex().SetDirection(tview.FlexRow),
+		app:         app,
+		table:       ui.NewTable(),
+		actions:     ui.NewKeyActions(),
+		jobName:     jobName,
+		stopRefresh: make(chan struct{}),
 	}
 	v.AddItem(v.table, 0, 1, true)
 	v.bindKeys()
 	v.refresh()
+	v.startAutoRefresh()
 	return v
 }
 
@@ -63,6 +67,10 @@ func (v *BuildsView) bindKeys() {
 		ui.KeyS:        ui.NewKeyAction("Stop", v.stopCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Rebuild", v.rebuildCmd, true),
+		// Sorting shortcuts
+		ui.KeyShiftN: ui.NewKeyAction("Sort Number", v.sortByNumberCmd, true),
+		ui.KeyShiftR: ui.NewKeyAction("Sort Result", v.sortByResultCmd, true),
+		ui.KeyShiftA: ui.NewKeyAction("Sort Age", v.sortByAgeCmd, true),
 	})
 
 	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
@@ -108,7 +116,11 @@ func (v *BuildsView) renderBuilds(builds []client.Build) {
 		}
 
 		duration := "-"
-		if build.Duration > 0 {
+		if build.Building && build.Timestamp > 0 {
+			// Show elapsed time in yellow/orange for running builds
+			elapsed := time.Since(time.Unix(build.Timestamp/1000, 0))
+			duration = fmt.Sprintf("[yellow::b]%s[-::-]", formatDuration(elapsed))
+		} else if build.Duration > 0 {
 			duration = formatDuration(time.Duration(build.Duration) * time.Millisecond)
 		}
 
@@ -180,21 +192,8 @@ func (v *BuildsView) rebuildCmd(*tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 
-	go func() {
-		v.app.QueueUpdateDraw(func() {
-			v.app.Flash().Info("Triggering rebuild...")
-		})
-
-		err := v.app.Client().TriggerBuild(context.Background(), v.jobName, nil)
-		v.app.QueueUpdateDraw(func() {
-			if err != nil {
-				v.app.Flash().Err(err)
-			} else {
-				v.app.Flash().Info(fmt.Sprintf("Build triggered for %s", v.jobName))
-			}
-			v.refresh()
-		})
-	}()
+	// Show parameter form with last build's params pre-filled
+	ShowParamsForm(v.app, v.jobName, true)
 	return nil
 }
 
@@ -223,4 +222,56 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// startAutoRefresh starts the auto-refresh timer.
+func (v *BuildsView) startAutoRefresh() {
+	rate := float32(2) // default 2 seconds
+	if v.app.Config() != nil && v.app.Config().J9s.RefreshRate > 0 {
+		rate = v.app.Config().J9s.RefreshRate
+	}
+
+	v.autoRefresh = time.NewTicker(time.Duration(rate) * time.Second)
+
+	go func() {
+		for {
+			select {
+			case <-v.stopRefresh:
+				return
+			case <-v.autoRefresh.C:
+				v.refresh()
+			}
+		}
+	}()
+}
+
+// Stop stops the auto-refresh timer.
+func (v *BuildsView) Stop() {
+	if v.autoRefresh != nil {
+		v.autoRefresh.Stop()
+		v.autoRefresh = nil
+	}
+	if v.stopRefresh != nil {
+		close(v.stopRefresh)
+		v.stopRefresh = nil
+	}
+}
+
+// Sorting commands - columns: NUMBER(0), RESULT(1), DURATION(2), AGE(3)
+func (v *BuildsView) sortByNumberCmd(*tcell.EventKey) *tcell.EventKey {
+	v.table.SortByColumn(0)
+	v.table.Refresh()
+	return nil
+}
+
+func (v *BuildsView) sortByResultCmd(*tcell.EventKey) *tcell.EventKey {
+	v.table.SortByColumn(1)
+	v.table.Refresh()
+	return nil
+}
+
+func (v *BuildsView) sortByAgeCmd(*tcell.EventKey) *tcell.EventKey {
+	v.table.SortByColumn(3)
+	v.table.Refresh()
+	return nil
 }

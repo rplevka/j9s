@@ -100,9 +100,11 @@ func (v *ContextsView) switchCmd(*tcell.EventKey) *tcell.EventKey {
 
 	if err := v.app.SwitchContext(ctxName); err != nil {
 		v.app.Flash().Err(err)
-	} else {
-		v.app.Flash().Info("Switched to context: " + ctxName)
-		v.refresh()
+		return nil
 	}
+
+	v.app.Flash().Info("Switched to context: " + ctxName)
+	// Navigate to jobs view for the selected context
+	v.app.Content.Push(NewJobsView(v.app))
 	return nil
 }

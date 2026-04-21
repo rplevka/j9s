@@ -14,21 +14,21 @@ func AddGlobalKeys(app *App, actions *ui.KeyActions) {
 		tcell.KeyCtrlC: ui.NewKeyAction("Quit", func(*tcell.EventKey) *tcell.EventKey {
 			app.Stop()
 			return nil
-		}, true),
+		}, false), // Hidden from menu
 		ui.KeyColon: ui.NewKeyAction("Command", func(*tcell.EventKey) *tcell.EventKey {
 			app.SetFilterMode(false)
 			app.Prompt().SetIcon(':')
 			app.ActivateCmd(true)
 			app.TogglePrompt(true)
 			return nil
-		}, true),
+		}, false), // Hidden from menu
 		ui.KeySlash: ui.NewKeyAction("Filter", func(*tcell.EventKey) *tcell.EventKey {
 			app.SetFilterMode(true)
 			app.Prompt().SetIcon('/')
 			app.ActivateCmd(true)
 			app.TogglePrompt(true)
 			return nil
-		}, true),
+		}, false), // Hidden from menu
 		tcell.KeyEsc: ui.NewKeyAction("Back", func(*tcell.EventKey) *tcell.EventKey {
 			if app.InCmdMode() {
 				app.ResetPrompt()
@@ -38,6 +38,10 @@ func AddGlobalKeys(app *App, actions *ui.KeyActions) {
 			if app.Content.CanPop() {
 				app.Content.Pop()
 			}
+			return nil
+		}, false), // Hidden from menu
+		ui.KeyQuestion: ui.NewKeyAction("Help", func(*tcell.EventKey) *tcell.EventKey {
+			app.Content.Push(NewHelpView(app, actions))
 			return nil
 		}, true),
 	})

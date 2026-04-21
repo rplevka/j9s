@@ -34,6 +34,7 @@ type LogsView struct {
 	buildNum      int
 	filter        string
 	autoScroll    bool
+	wrapEnabled   bool // Line wrap state
 	cancelFn      context.CancelFunc
 	logLines      []string // Store log lines for filtering
 	lastKey       rune     // Track last key for vim-style sequences (gg)
@@ -47,19 +48,20 @@ type LogsView struct {
 // NewLogsView returns a new logs view.
 func NewLogsView(app *App, jobName string, buildNum int) *LogsView {
 	v := &LogsView{
-		Flex:       tview.NewFlex().SetDirection(tview.FlexRow),
-		app:        app,
-		textView:   tview.NewTextView(),
-		actions:    ui.NewKeyActions(),
-		jobName:    jobName,
-		buildNum:   buildNum,
-		autoScroll: true,
+		Flex:        tview.NewFlex().SetDirection(tview.FlexRow),
+		app:         app,
+		textView:    tview.NewTextView(),
+		actions:     ui.NewKeyActions(),
+		jobName:     jobName,
+		buildNum:    buildNum,
+		autoScroll:  true,
+		wrapEnabled: true,
 	}
 
 	v.textView.SetDynamicColors(true)
 	v.textView.SetScrollable(true)
 	v.textView.SetBackgroundColor(tcell.ColorDefault)
-	v.textView.SetWrap(true)
+	v.textView.SetWrap(v.wrapEnabled)
 
 	v.AddItem(v.textView, 0, 1, true)
 	v.bindKeys()
@@ -103,6 +105,73 @@ func (v *LogsView) bindKeys() {
 	v.textView.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		r := evt.Rune()
+
+		// Handle horizontal scrolling with left/right arrows when wrap is disabled
+		// Use step size of 10 columns for faster scrolling (similar to k9s)
+		const hScrollStep = 10
+		if !v.wrapEnabled {
+			switch key {
+			case tcell.KeyLeft:
+				row, col := v.textView.GetScrollOffset()
+				newCol := col - hScrollStep
+				if newCol < 0 {
+					newCol = 0
+				}
+				v.textView.ScrollTo(row, newCol)
+				return nil
+			case tcell.KeyRight:
+				row, col := v.textView.GetScrollOffset()
+				v.textView.ScrollTo(row, col+hScrollStep)
+				return nil
+			}
+		}
+
+		// Vim-like horizontal navigation (work regardless of wrap mode)
+		if key == tcell.KeyRune {
+			switch r {
+			case '^', '0': // Beginning of line
+				row, _ := v.textView.GetScrollOffset()
+				v.textView.ScrollTo(row, 0)
+				return nil
+			case '$': // End of line (scroll far right)
+				row, _ := v.textView.GetScrollOffset()
+				v.textView.ScrollTo(row, 500) // Large value to scroll to end
+				return nil
+			case 'h': // Left (vim style)
+				if !v.wrapEnabled {
+					row, col := v.textView.GetScrollOffset()
+					newCol := col - hScrollStep
+					if newCol < 0 {
+						newCol = 0
+					}
+					v.textView.ScrollTo(row, newCol)
+					return nil
+				}
+			case 'l': // Right (vim style)
+				if !v.wrapEnabled {
+					row, col := v.textView.GetScrollOffset()
+					v.textView.ScrollTo(row, col+hScrollStep)
+					return nil
+				}
+			case '{': // Previous paragraph/empty line
+				row, col := v.textView.GetScrollOffset()
+				newRow := row - 10
+				if newRow < 0 {
+					newRow = 0
+				}
+				v.textView.ScrollTo(newRow, col)
+				return nil
+			case '}': // Next paragraph/empty line
+				row, col := v.textView.GetScrollOffset()
+				v.textView.ScrollTo(row+10, col)
+				return nil
+			case '%': // Jump to matching bracket - scroll half screen
+				row, col := v.textView.GetScrollOffset()
+				// Simple implementation: jump half the visible height
+				v.textView.ScrollTo(row+20, col)
+				return nil
+			}
+		}
 
 		// Handle vim-style gg (go to beginning)
 		if key == tcell.KeyRune && r == 'g' {
@@ -506,7 +575,13 @@ func (v *LogsView) fullScreenCmd(*tcell.EventKey) *tcell.EventKey {
 }
 
 func (v *LogsView) toggleWrapCmd(*tcell.EventKey) *tcell.EventKey {
-	// Toggle wrap - tview doesn't expose current state, so we track it
+	v.wrapEnabled = !v.wrapEnabled
+	v.textView.SetWrap(v.wrapEnabled)
+	if v.wrapEnabled {
+		v.app.Flash().Info("Line wrap enabled")
+	} else {
+		v.app.Flash().Info("Line wrap disabled")
+	}
 	return nil
 }
 

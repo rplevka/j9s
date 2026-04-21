@@ -447,7 +447,7 @@ func jobPath(name string) string {
 
 // GetJob returns a specific job.
 func (c *Client) GetJob(ctx context.Context, name string) (*Job, error) {
-	path := jobPath(name) + "/api/json"
+	path := jobPath(name) + "/api/json?tree=*,property[*,parameterDefinitions[*]],lastBuild[number,actions[parameters[*]]]"
 	data, err := c.get(ctx, path)
 	if err != nil {
 		return nil, err
@@ -459,6 +459,51 @@ func (c *Client) GetJob(ctx context.Context, name string) (*Job, error) {
 	}
 
 	return &job, nil
+}
+
+// GetJobParameters returns the parameter definitions for a job.
+func (c *Client) GetJobParameters(ctx context.Context, name string) ([]ParameterDef, error) {
+	job, err := c.GetJob(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, prop := range job.Property {
+		if len(prop.ParameterDefinitions) > 0 {
+			return prop.ParameterDefinitions, nil
+		}
+	}
+
+	return nil, nil // Job has no parameters
+}
+
+// GetLastBuildParameters returns the parameters used in the last build.
+func (c *Client) GetLastBuildParameters(ctx context.Context, jobName string) (map[string]string, error) {
+	job, err := c.GetJob(ctx, jobName)
+	if err != nil {
+		return nil, err
+	}
+
+	if job.LastBuild == nil {
+		return nil, nil
+	}
+
+	// Get full build details with actions
+	build, err := c.GetBuild(ctx, jobName, job.LastBuild.Number)
+	if err != nil {
+		return nil, err
+	}
+
+	params := make(map[string]string)
+	for _, action := range build.Actions {
+		for _, param := range action.Parameters {
+			if param.Name != "" && param.Value != nil {
+				params[param.Name] = fmt.Sprintf("%v", param.Value)
+			}
+		}
+	}
+
+	return params, nil
 }
 
 // GetJobConfig returns the job configuration XML.
@@ -622,6 +667,7 @@ func (c *Client) StreamBuildConsoleOutput(ctx context.Context, jobName string, b
 }
 
 // TriggerBuild triggers a build for a job.
+// For parameterized jobs, use buildWithParameters endpoint.
 func (c *Client) TriggerBuild(ctx context.Context, jobName string, params map[string]string) error {
 	var path string
 	if len(params) > 0 {
@@ -631,11 +677,39 @@ func (c *Client) TriggerBuild(ctx context.Context, jobName string, params map[st
 		}
 		path = fmt.Sprintf("%s/buildWithParameters?%s", jobPath(jobName), values.Encode())
 	} else {
+		// Try /build first, if it fails with 400, try /buildWithParameters
+		// (parameterized jobs require buildWithParameters even without params)
 		path = jobPath(jobName) + "/build"
 	}
 
-	_, err := c.post(ctx, path, nil)
-	return err
+	resp, err := c.doRequest(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// If /build returns 400 or 405, try /buildWithParameters for parameterized jobs
+	if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusMethodNotAllowed {
+		path = jobPath(jobName) + "/buildWithParameters"
+		resp2, err := c.doRequest(ctx, http.MethodPost, path, nil)
+		if err != nil {
+			return err
+		}
+		defer resp2.Body.Close()
+
+		if resp2.StatusCode != http.StatusOK && resp2.StatusCode != http.StatusCreated && resp2.StatusCode != http.StatusNoContent {
+			respBody, _ := io.ReadAll(resp2.Body)
+			return fmt.Errorf("request failed with status %d: %s", resp2.StatusCode, string(respBody))
+		}
+		return nil
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
 }
 
 // StopBuild stops a running build.

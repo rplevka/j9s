@@ -7,9 +7,10 @@ import "github.com/derailed/tcell/v2"
 
 // Key constants for common keys.
 const (
-	KeyColon tcell.Key = tcell.Key(':')
-	KeySlash tcell.Key = tcell.Key('/')
-	KeySpace tcell.Key = tcell.Key(' ')
+	KeyColon    tcell.Key = tcell.Key(':')
+	KeySlash    tcell.Key = tcell.Key('/')
+	KeySpace    tcell.Key = tcell.Key(' ')
+	KeyQuestion tcell.Key = tcell.Key('?')
 
 	KeyA tcell.Key = tcell.Key('a')
 	KeyB tcell.Key = tcell.Key('b')
