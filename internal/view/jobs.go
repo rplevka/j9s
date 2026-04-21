@@ -284,7 +284,12 @@ func (v *JobsView) describeCmd(*tcell.EventKey) *tcell.EventKey {
 	if jobName == "" {
 		return nil
 	}
-	descView := NewDescribeView(v.app, "job", jobName)
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
+	descView := NewDescribeView(v.app, "job", fullJobName)
 	v.app.Content.Push(descView)
 	return nil
 }
@@ -294,14 +299,19 @@ func (v *JobsView) triggerCmd(*tcell.EventKey) *tcell.EventKey {
 	if jobName == "" {
 		return nil
 	}
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
 
 	go func() {
-		err := v.app.Client().TriggerBuild(context.Background(), jobName, nil)
+		err := v.app.Client().TriggerBuild(context.Background(), fullJobName, nil)
 		v.app.QueueUpdateDraw(func() {
 			if err != nil {
 				v.app.Flash().Err(err)
 			} else {
-				v.app.Flash().Info(fmt.Sprintf("Build triggered for %s", jobName))
+				v.app.Flash().Info(fmt.Sprintf("Build triggered for %s", fullJobName))
 			}
 			v.refresh()
 		})
@@ -314,14 +324,19 @@ func (v *JobsView) enableCmd(*tcell.EventKey) *tcell.EventKey {
 	if jobName == "" {
 		return nil
 	}
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
 
 	go func() {
-		err := v.app.Client().EnableJob(context.Background(), jobName)
+		err := v.app.Client().EnableJob(context.Background(), fullJobName)
 		v.app.QueueUpdateDraw(func() {
 			if err != nil {
 				v.app.Flash().Err(err)
 			} else {
-				v.app.Flash().Info(fmt.Sprintf("Job %s enabled", jobName))
+				v.app.Flash().Info(fmt.Sprintf("Job %s enabled", fullJobName))
 			}
 			v.refresh()
 		})
@@ -334,14 +349,19 @@ func (v *JobsView) disableCmd(*tcell.EventKey) *tcell.EventKey {
 	if jobName == "" {
 		return nil
 	}
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
 
 	go func() {
-		err := v.app.Client().DisableJob(context.Background(), jobName)
+		err := v.app.Client().DisableJob(context.Background(), fullJobName)
 		v.app.QueueUpdateDraw(func() {
 			if err != nil {
 				v.app.Flash().Err(err)
 			} else {
-				v.app.Flash().Info(fmt.Sprintf("Job %s disabled", jobName))
+				v.app.Flash().Info(fmt.Sprintf("Job %s disabled", fullJobName))
 			}
 			v.refresh()
 		})
@@ -359,15 +379,20 @@ func (v *JobsView) deleteCmd(*tcell.EventKey) *tcell.EventKey {
 	if jobName == "" {
 		return nil
 	}
+	// Include folder path for nested jobs
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
 
 	// TODO: Add confirmation dialog
 	go func() {
-		err := v.app.Client().DeleteJob(context.Background(), jobName)
+		err := v.app.Client().DeleteJob(context.Background(), fullJobName)
 		v.app.QueueUpdateDraw(func() {
 			if err != nil {
 				v.app.Flash().Err(err)
 			} else {
-				v.app.Flash().Info(fmt.Sprintf("Job %s deleted", jobName))
+				v.app.Flash().Info(fmt.Sprintf("Job %s deleted", fullJobName))
 			}
 			v.refresh()
 		})

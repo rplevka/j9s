@@ -19,7 +19,7 @@ import (
 type DescribeView struct {
 	*tview.Flex
 	app          *App
-	textView     *tview.TextView
+	textView     *ui.FilterableTextView
 	actions      *ui.KeyActions
 	resourceType string
 	resourceName string
@@ -30,16 +30,11 @@ func NewDescribeView(app *App, resourceType, resourceName string) *DescribeView 
 	v := &DescribeView{
 		Flex:         tview.NewFlex().SetDirection(tview.FlexRow),
 		app:          app,
-		textView:     tview.NewTextView(),
+		textView:     ui.NewFilterableTextView(),
 		actions:      ui.NewKeyActions(),
 		resourceType: resourceType,
 		resourceName: resourceName,
 	}
-
-	v.textView.SetDynamicColors(true)
-	v.textView.SetScrollable(true)
-	v.textView.SetBackgroundColor(tcell.ColorDefault)
-	v.textView.SetWrap(true)
 
 	v.AddItem(v.textView, 0, 1, true)
 	v.bindKeys()
@@ -59,9 +54,13 @@ func (v *DescribeView) Hints() model.MenuHints {
 }
 
 func (v *DescribeView) bindKeys() {
+	AddGlobalKeys(v.app, v.actions)
+
 	v.actions.Bulk(ui.KeyMap{
 		ui.KeyG:      ui.NewKeyAction("Top", v.topCmd, true),
 		ui.KeyShiftG: ui.NewKeyAction("Bottom", v.bottomCmd, true),
+		ui.KeyN:      ui.NewKeyAction("Next Match", v.nextMatchCmd, true),
+		ui.KeyShiftN: ui.NewKeyAction("Prev Match", v.prevMatchCmd, true),
 		tcell.KeyEsc: ui.NewKeyAction("Back", v.backCmd, true),
 	})
 
@@ -75,6 +74,29 @@ func (v *DescribeView) bindKeys() {
 		}
 		return evt
 	})
+}
+
+// SetFilter sets the search filter and highlights matches.
+func (v *DescribeView) SetFilter(filter string) {
+	v.textView.SetFilter(filter)
+}
+
+func (v *DescribeView) nextMatchCmd(*tcell.EventKey) *tcell.EventKey {
+	// Scroll down
+	row, _ := v.textView.GetScrollOffset()
+	v.textView.ScrollTo(row+5, 0)
+	return nil
+}
+
+func (v *DescribeView) prevMatchCmd(*tcell.EventKey) *tcell.EventKey {
+	// Scroll up
+	row, _ := v.textView.GetScrollOffset()
+	if row > 5 {
+		v.textView.ScrollTo(row-5, 0)
+	} else {
+		v.textView.ScrollTo(0, 0)
+	}
+	return nil
 }
 
 func (v *DescribeView) refresh() {
@@ -107,9 +129,9 @@ func (v *DescribeView) refresh() {
 		v.app.QueueUpdateDraw(func() {
 			if err != nil {
 				v.app.Flash().Err(err)
-				v.textView.SetText(fmt.Sprintf("[red]Error: %v[-]", err))
+				v.textView.SetContent(fmt.Sprintf("Error: %v", err))
 			} else {
-				v.textView.SetText(v.syntaxHighlight(content))
+				v.textView.SetContent(content)
 			}
 		})
 	}()
@@ -120,20 +142,13 @@ func (v *DescribeView) formatBuildDetails(build interface{}) string {
 	return fmt.Sprintf("%+v", build)
 }
 
-func (v *DescribeView) syntaxHighlight(content string) string {
-	// Basic XML syntax highlighting
-	content = strings.ReplaceAll(content, "<", "[aqua]<[-]")
-	content = strings.ReplaceAll(content, ">", "[aqua]>[-]")
-	return content
-}
-
 func (v *DescribeView) topCmd(*tcell.EventKey) *tcell.EventKey {
-	v.textView.ScrollToBeginning()
+	v.textView.ScrollToTop()
 	return nil
 }
 
 func (v *DescribeView) bottomCmd(*tcell.EventKey) *tcell.EventKey {
-	v.textView.ScrollToEnd()
+	v.textView.ScrollToBottom()
 	return nil
 }
 

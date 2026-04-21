@@ -47,6 +47,7 @@ const (
 	KeyShiftG tcell.Key = tcell.Key('G')
 	KeyShiftK tcell.Key = tcell.Key('K')
 	KeyShiftL tcell.Key = tcell.Key('L')
+	KeyShiftN tcell.Key = tcell.Key('N')
 	KeyShiftR tcell.Key = tcell.Key('R')
 	KeyShiftS tcell.Key = tcell.Key('S')
 

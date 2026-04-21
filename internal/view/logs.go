@@ -448,38 +448,11 @@ func (v *LogsView) renderLog() {
 }
 
 // highlightMatch highlights all occurrences of the filter in the line.
+// Uses the shared ui.HighlightMatches function for consistent styling.
 func (v *LogsView) highlightMatch(line, filter string) string {
-	if filter == "" {
-		return line
-	}
-
-	lineLower := strings.ToLower(line)
-	filterLower := strings.ToLower(filter)
-
-	var result strings.Builder
-	lastEnd := 0
-
-	for {
-		idx := strings.Index(lineLower[lastEnd:], filterLower)
-		if idx == -1 {
-			result.WriteString(line[lastEnd:])
-			break
-		}
-
-		matchStart := lastEnd + idx
-		matchEnd := matchStart + len(filter)
-
-		// Write text before match
-		result.WriteString(line[lastEnd:matchStart])
-		// Write highlighted match (yellow background, black text)
-		result.WriteString("[black:yellow:b]")
-		result.WriteString(line[matchStart:matchEnd])
-		result.WriteString("[-:-:-]")
-
-		lastEnd = matchEnd
-	}
-
-	return result.String()
+	// Escape any existing [ characters to prevent them being parsed as color tags
+	escaped := strings.ReplaceAll(line, "[", "[[]")
+	return ui.HighlightMatches(escaped, filter)
 }
 
 // SetFilter sets the filter and re-renders the log.
