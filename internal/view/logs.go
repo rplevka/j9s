@@ -31,6 +31,7 @@ type LogsView struct {
 	*tview.Flex
 	app           *App
 	textView      *tview.TextView
+	indicator     *LogIndicator
 	actions       *ui.KeyActions
 	jobName       string
 	buildNum      int
@@ -67,6 +68,9 @@ func NewLogsView(app *App, jobName string, buildNum int) *LogsView {
 	v.textView.SetWrap(v.wrapEnabled)
 	v.textView.SetBorderPadding(0, 0, 1, 1)
 
+	// Create status indicator
+	v.indicator = NewLogIndicator()
+
 	// Add border and title like k9s
 	v.SetBorder(true)
 	v.SetBorderColor(tcell.ColorAqua)
@@ -74,6 +78,7 @@ func NewLogsView(app *App, jobName string, buildNum int) *LogsView {
 	v.SetTitleAlign(tview.AlignLeft)
 
 	v.AddItem(v.textView, 0, 1, true)
+	v.AddItem(v.indicator, 1, 0, false) // Fixed height of 1 row for indicator
 	v.bindKeys()
 	v.updateTitle()
 	v.startStreaming()
@@ -732,6 +737,7 @@ func (v *LogsView) toggleFullScreenCmd(*tcell.EventKey) *tcell.EventKey {
 		v.textView.SetBorderPadding(0, 0, 1, 1)
 		v.app.Flash().Info("Full screen disabled")
 	}
+	v.indicator.SetFullScreen(v.fullScreen)
 	v.updateTitle()
 	return nil
 }
@@ -782,6 +788,7 @@ func (v *LogsView) toggleWrapCmd(*tcell.EventKey) *tcell.EventKey {
 	} else {
 		v.app.Flash().Info("Line wrap disabled")
 	}
+	v.indicator.SetTextWrap(v.wrapEnabled)
 	v.updateTitle()
 	return nil
 }
@@ -793,6 +800,7 @@ func (v *LogsView) toggleScrollCmd(*tcell.EventKey) *tcell.EventKey {
 	} else {
 		v.app.Flash().Info("Auto-scroll disabled")
 	}
+	v.indicator.SetAutoScroll(v.autoScroll)
 	v.updateTitle()
 	return nil
 }
