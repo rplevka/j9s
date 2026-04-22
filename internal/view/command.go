@@ -605,7 +605,8 @@ func (c *Command) gotoResource(res string) {
 	case "jobs":
 		view = NewJobsView(c.app)
 	case "builds":
-		view = NewBuildsView(c.app, "")
+		c.app.Flash().Warn("Usage: builds <job-name>")
+		return
 	case "queue":
 		view = NewQueueView(c.app)
 	case "nodes":
