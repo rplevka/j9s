@@ -45,6 +45,8 @@ type LogsView struct {
 	loading       bool     // Loading state
 	spinnerCancel context.CancelFunc
 	hasFullLog    bool         // True if we've loaded the complete log
+	buildComplete bool         // True if build is finished (no more streaming needed)
+	streamOffset  int64        // Current byte offset for streaming (to resume after goToBeginning)
 	cache         *cache.Cache // Log cache
 	fromCache     bool         // True if logs were loaded from cache
 }
@@ -243,9 +245,12 @@ func (v *LogsView) bindKeys() {
 	})
 }
 
-// goToBeginning fetches and displays the full log from the beginning.
+// goToBeginning fetches the full log from the beginning WITHOUT stopping streaming.
+// Streaming continues to append new data while we fetch the historical beginning.
 func (v *LogsView) goToBeginning() {
 	v.autoScroll = false
+	v.indicator.SetAutoScroll(v.autoScroll)
+	v.updateTitle()
 
 	// If we already have full log, just scroll to beginning
 	if v.hasFullLog {
@@ -254,15 +259,10 @@ func (v *LogsView) goToBeginning() {
 		return
 	}
 
-	// Fetch full log from beginning
+	// Fetch full log from beginning - but DON'T stop streaming
 	if v.app.Client() == nil {
 		v.app.Flash().Warn("No client available")
 		return
-	}
-
-	// Stop the streaming to prevent it from overwriting our full log
-	if v.cancelFn != nil {
-		v.cancelFn()
 	}
 
 	v.loading = true
@@ -309,20 +309,17 @@ func (v *LogsView) goToBeginning() {
 		// Show processing message
 		showProgress(fmt.Sprintf("Processing %s of log data...", formatBytes(int64(len(text)))))
 
-		// For very large logs, write directly to TextView without storing lines
-		// This is much faster than splitting into lines and iterating
+		// Replace logLines with full log - streaming will continue appending to this
 		v.app.QueueUpdateDraw(func() {
-			v.textView.Clear()
-			// Write the entire log at once - tview handles this efficiently
-			v.textView.SetText(text)
+			v.logLines = strings.Split(text, "\n")
 			v.hasFullLog = true
-			// Clear logLines to save memory - we have the text in TextView
-			v.logLines = nil
+			// Update streamOffset so streaming appends from correct position
+			v.streamOffset = int64(len(text))
+			v.renderLog()
 			v.textView.ScrollToBeginning()
 
 			// Count lines for the message
-			lineCount := strings.Count(text, "\n") + 1
-			v.app.Flash().Info(fmt.Sprintf("✓ Loaded %d lines (%s)", lineCount, formatBytes(int64(len(text)))))
+			v.app.Flash().Info(fmt.Sprintf("✓ Loaded %d lines (%s)", len(v.logLines), formatBytes(int64(len(text)))))
 		})
 	}()
 }
@@ -471,9 +468,11 @@ func (v *LogsView) startStreaming() {
 			showProgress("Waiting for log output...")
 		}
 		offset = newOffset
+		v.streamOffset = offset // Track for resume
 
 		if !moreData {
 			// Build complete
+			v.buildComplete = true
 			v.app.QueueUpdateDraw(func() {
 				if totalBytes > 0 {
 					v.app.Flash().Info(fmt.Sprintf("✓ Log complete: %s", formatBytes(totalBytes)))
@@ -511,9 +510,11 @@ func (v *LogsView) startStreaming() {
 				}
 
 				offset = newOffset
+				v.streamOffset = offset // Track for resume
 
 				// Stop polling if no more data and build is complete
 				if !moreData {
+					v.buildComplete = true
 					v.app.QueueUpdateDraw(func() {
 						if totalBytes > 0 {
 							v.app.Flash().Info(fmt.Sprintf("✓ Log complete: %s", formatBytes(totalBytes)))
@@ -560,6 +561,7 @@ func (v *LogsView) tryLoadFromCache() bool {
 	v.app.QueueUpdateDraw(func() {
 		v.logLines = strings.Split(log, "\n")
 		v.hasFullLog = true
+		v.buildComplete = true // Cached logs are always from completed builds
 		v.fromCache = true
 		v.renderLog()
 		v.app.Flash().Info(fmt.Sprintf("📦 Loaded from cache: %d lines (%s)", len(v.logLines), formatBytes(int64(len(log)))))
@@ -613,8 +615,25 @@ func (v *LogsView) appendText(text string) {
 		v.logLines = v.logLines[len(v.logLines)-maxLogLines:]
 	}
 
-	// Display with current filter
-	v.renderLog()
+	// Append directly to textView instead of clearing and rewriting
+	// This preserves scroll position when autoScroll is off
+	if v.filter == "" {
+		fmt.Fprint(v.textView, text)
+	} else {
+		// With filter, we need to check each new line
+		filterLower := strings.ToLower(v.filter)
+		for _, line := range newLines {
+			if strings.Contains(strings.ToLower(line), filterLower) {
+				highlighted := v.highlightMatch(line, v.filter)
+				fmt.Fprintln(v.textView, highlighted)
+			}
+		}
+	}
+
+	// Only scroll if autoScroll is enabled
+	if v.autoScroll {
+		v.textView.ScrollToEnd()
+	}
 }
 
 func (v *LogsView) renderLog() {
@@ -681,6 +700,9 @@ func (v *LogsView) topCmd(*tcell.EventKey) *tcell.EventKey {
 func (v *LogsView) bottomCmd(*tcell.EventKey) *tcell.EventKey {
 	v.textView.ScrollToEnd()
 	v.autoScroll = true
+	v.indicator.SetAutoScroll(v.autoScroll)
+	v.updateTitle()
+	// Streaming continues running - just update view state
 	return nil
 }
 
@@ -694,6 +716,8 @@ func (v *LogsView) headCmd(*tcell.EventKey) *tcell.EventKey {
 func (v *LogsView) tailCmd(*tcell.EventKey) *tcell.EventKey {
 	v.autoScroll = true
 	v.textView.ScrollToEnd()
+	v.indicator.SetAutoScroll(v.autoScroll)
+	v.updateTitle()
 	v.app.Flash().Info("Following log tail")
 	return nil
 }
@@ -797,8 +821,15 @@ func (v *LogsView) toggleScrollCmd(*tcell.EventKey) *tcell.EventKey {
 	v.autoScroll = !v.autoScroll
 	if v.autoScroll {
 		v.app.Flash().Info("Auto-scroll enabled")
+		v.textView.ScrollToEnd()
 	} else {
 		v.app.Flash().Info("Auto-scroll disabled")
+		// Scroll up one line to disable tview's internal trackEnd behavior
+		row, col := v.textView.GetScrollOffset()
+		if row > 0 {
+			v.textView.ScrollTo(row-1, col)
+			v.textView.ScrollTo(row, col) // scroll back
+		}
 	}
 	v.indicator.SetAutoScroll(v.autoScroll)
 	v.updateTitle()
