@@ -158,6 +158,7 @@ func (h *HelpView) showGeneral() model.MenuHints {
 		{Mnemonic: "Ctrl-c", Description: "Quit", Visible: true},
 		{Mnemonic: "?", Description: "Help", Visible: true},
 		{Mnemonic: "q", Description: "Back", Visible: true},
+		{Mnemonic: "u", Description: "Copy Jenkins URL", Visible: true},
 		{Mnemonic: "Shift-N", Description: "Sort by Name/Number", Visible: true},
 		{Mnemonic: "Shift-S", Description: "Sort by Status", Visible: true},
 		{Mnemonic: "Shift-A", Description: "Sort by Age", Visible: true},

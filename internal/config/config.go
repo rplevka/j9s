@@ -85,6 +85,14 @@ type Context struct {
 
 	// CACert is the path to the CA certificate.
 	CACert string `yaml:"caCert,omitempty"`
+
+	// Bookmark is the landing view path for this context (e.g., "builds/my-job").
+	Bookmark string `yaml:"bookmark,omitempty"`
+
+	// BookmarkSelections stores what item was selected at each view level.
+	// Key is the view path (e.g., "jobs"), value is the selected item ID.
+	// This allows proper cursor restoration when navigating back.
+	BookmarkSelections map[string]string `yaml:"bookmarkSelections,omitempty"`
 }
 
 // AuthConfig represents the authentication configuration.
@@ -173,7 +181,8 @@ type J9s struct {
 
 // Config represents the application configuration.
 type Config struct {
-	J9s *J9s `yaml:"j9s"`
+	J9s  *J9s   `yaml:"j9s"`
+	path string `yaml:"-"` // Config file path (not serialized)
 }
 
 // NewConfig returns a new configuration.
@@ -199,6 +208,8 @@ func CacheDir() string {
 
 // Load loads the configuration from the given file.
 func (c *Config) Load(path string) error {
+	c.path = path // Store path for later saves
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return c.Save(path)
 	}
@@ -221,6 +232,14 @@ func (c *Config) Load(path string) error {
 	}
 
 	return nil
+}
+
+// SaveConfig saves the configuration to the stored path.
+func (c *Config) SaveConfig() error {
+	if c.path == "" {
+		return fmt.Errorf("config path not set")
+	}
+	return c.Save(c.path)
 }
 
 // Save saves the configuration to the given file.
@@ -304,4 +323,63 @@ func (c *Config) ContextNames() []string {
 		names = append(names, ctx.Name)
 	}
 	return names
+}
+
+// SetBookmark sets the bookmark for the active context.
+func (c *Config) SetBookmark(bookmark string) error {
+	for i, ctx := range c.J9s.Contexts {
+		if ctx.Name == c.J9s.CurrentContext {
+			c.J9s.Contexts[i].Bookmark = bookmark
+			return c.SaveConfig()
+		}
+	}
+	return fmt.Errorf("active context %q not found", c.J9s.CurrentContext)
+}
+
+// ClearBookmark clears the bookmark for the active context.
+func (c *Config) ClearBookmark() error {
+	return c.SetBookmark("")
+}
+
+// GetBookmark returns the bookmark for the active context.
+func (c *Config) GetBookmark() string {
+	for _, ctx := range c.J9s.Contexts {
+		if ctx.Name == c.J9s.CurrentContext {
+			return ctx.Bookmark
+		}
+	}
+	return ""
+}
+
+// SetBookmarkSelections sets the bookmark selections for the active context.
+func (c *Config) SetBookmarkSelections(selections map[string]string) error {
+	for i, ctx := range c.J9s.Contexts {
+		if ctx.Name == c.J9s.CurrentContext {
+			c.J9s.Contexts[i].BookmarkSelections = selections
+			return c.SaveConfig()
+		}
+	}
+	return fmt.Errorf("active context %q not found", c.J9s.CurrentContext)
+}
+
+// GetBookmarkSelections returns the bookmark selections for the active context.
+func (c *Config) GetBookmarkSelections() map[string]string {
+	for _, ctx := range c.J9s.Contexts {
+		if ctx.Name == c.J9s.CurrentContext {
+			return ctx.BookmarkSelections
+		}
+	}
+	return nil
+}
+
+// SetBookmarkWithSelections sets both bookmark path and selections atomically.
+func (c *Config) SetBookmarkWithSelections(bookmark string, selections map[string]string) error {
+	for i, ctx := range c.J9s.Contexts {
+		if ctx.Name == c.J9s.CurrentContext {
+			c.J9s.Contexts[i].Bookmark = bookmark
+			c.J9s.Contexts[i].BookmarkSelections = selections
+			return c.SaveConfig()
+		}
+	}
+	return fmt.Errorf("active context %q not found", c.J9s.CurrentContext)
 }

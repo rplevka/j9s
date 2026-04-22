@@ -68,6 +68,19 @@ type Stoppable interface {
 	Stop()
 }
 
+// ParentIdentifier is an interface for views that track their parent item.
+// This is used to restore selection when navigating back.
+type ParentIdentifier interface {
+	// GetParentID returns the ID of the parent item this view was opened from.
+	GetParentID() string
+}
+
+// Selectable is an interface for views that support selecting items by ID.
+type Selectable interface {
+	// SelectByID selects the item with the given ID.
+	SelectByID(id string) bool
+}
+
 // Pop pops a component from the stack.
 func (p *PageStack) Pop() model.Component {
 	if len(p.stack) == 0 {
@@ -87,6 +100,17 @@ func (p *PageStack) Pop() model.Component {
 	if len(p.stack) > 0 {
 		top = p.stack[len(p.stack)-1]
 		p.SwitchToPage(top.Name())
+
+		// Restore selection: if the popped view has a parent ID and the new top
+		// view supports selection, select the parent item
+		if parentID, ok := old.(ParentIdentifier); ok {
+			if selectable, ok := top.(Selectable); ok {
+				id := parentID.GetParentID()
+				if id != "" {
+					selectable.SelectByID(id)
+				}
+			}
+		}
 	}
 
 	p.notifyPop(old, top)
@@ -116,6 +140,13 @@ func (p *PageStack) Clear() {
 // Len returns the stack length.
 func (p *PageStack) Len() int {
 	return len(p.stack)
+}
+
+// GetStack returns a copy of the stack for iteration.
+func (p *PageStack) GetStack() []model.Component {
+	result := make([]model.Component, len(p.stack))
+	copy(result, p.stack)
+	return result
 }
 
 func (p *PageStack) notifyPush(c model.Component) {

@@ -65,7 +65,7 @@ func (v *ArtifactsView) bindKeys() {
 		ui.KeyY:        ui.NewKeyAction("Copy URL", v.copyURLCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())

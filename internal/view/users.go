@@ -52,7 +52,7 @@ func (v *UsersView) bindKeys() {
 		ui.KeyR: ui.NewKeyAction("Refresh", v.refreshCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())

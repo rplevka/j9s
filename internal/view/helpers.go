@@ -4,6 +4,7 @@
 package view
 
 import (
+	"github.com/atotto/clipboard"
 	"github.com/derailed/tcell/v2"
 	"github.com/roman-plevka/j9s/internal/ui"
 )
@@ -42,6 +43,27 @@ func AddGlobalKeys(app *App, actions *ui.KeyActions) {
 		}, false), // Hidden from menu
 		ui.KeyQuestion: ui.NewKeyAction("Help", func(*tcell.EventKey) *tcell.EventKey {
 			app.Content.Push(NewHelpView(app, actions))
+			return nil
+		}, true),
+		ui.KeyU: ui.NewKeyAction("Copy URL", func(*tcell.EventKey) *tcell.EventKey {
+			top := app.Content.Top()
+			if top == nil {
+				return nil
+			}
+			if urlProvider, ok := top.(URLProvider); ok {
+				url := urlProvider.GetJenkinsURL()
+				if url != "" {
+					if err := clipboard.WriteAll(url); err != nil {
+						app.Flash().Warn("Failed to copy URL to clipboard")
+					} else {
+						app.Flash().Info("Copied: " + url)
+					}
+				} else {
+					app.Flash().Warn("No URL available for this view")
+				}
+			} else {
+				app.Flash().Warn("This view does not support URL generation")
+			}
 			return nil
 		}, true),
 	})

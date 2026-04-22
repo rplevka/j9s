@@ -67,7 +67,7 @@ func (v *ViewsView) bindKeys() {
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())
@@ -214,7 +214,7 @@ func (v *ViewJobsView) bindKeys() {
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())
@@ -281,11 +281,7 @@ func (v *ViewJobsView) renderJobs(jobs []client.Job) {
 			health = fmt.Sprintf("%d%%", job.HealthReport[0].Score)
 		}
 
-		// Check if this is a folder
 		name := job.Name
-		if job.IsFolder() {
-			name = "📁 " + name
-		}
 
 		rows = append(rows, []string{
 			name,

@@ -91,6 +91,27 @@ func (v *LogsView) Hints() model.MenuHints {
 	return v.actions.Hints()
 }
 
+// GetJenkinsURL returns the Jenkins web UI URL for this log view.
+func (v *LogsView) GetJenkinsURL() string {
+	ctx, _ := v.app.Config().ActiveContext()
+	if ctx == nil {
+		return ""
+	}
+	return GenerateJenkinsURL(ctx.URL, v.GetViewPath())
+}
+
+// GetViewPath returns the internal view path for bookmarking.
+// Format: logs/job-name/build-number (e.g., "logs/folder/my-job/123")
+func (v *LogsView) GetViewPath() string {
+	return fmt.Sprintf("logs/%s/%d", v.jobName, v.buildNum)
+}
+
+// GetParentID returns the build number as a string for selection restoration.
+// This allows the builds view to select the correct build when navigating back.
+func (v *LogsView) GetParentID() string {
+	return fmt.Sprintf("#%d", v.buildNum)
+}
+
 func (v *LogsView) bindKeys() {
 	// Add all keys with proper visibility for menu hints
 	v.actions.Bulk(ui.KeyMap{
@@ -230,6 +251,7 @@ func (v *LogsView) goToBeginning() {
 
 	// Fetch full log from beginning
 	if v.app.Client() == nil {
+		v.app.Flash().Warn("No client available")
 		return
 	}
 
@@ -239,29 +261,32 @@ func (v *LogsView) goToBeginning() {
 	}
 
 	v.loading = true
+	v.app.Flash().Info("⏳ Fetching full log from beginning...")
 
 	go func() {
 		// Use a timeout context
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		defer cancel()
 
-		// Progress callback to show download progress
-		var lastUpdate time.Time
-		progress := func(bytesRead int64, totalSize int64) {
-			// Throttle updates to every 100ms
-			if time.Since(lastUpdate) < 100*time.Millisecond {
-				return
-			}
-			lastUpdate = time.Now()
+		// Spinner for progress
+		spinnerFrame := 0
+		showProgress := func(msg string) {
+			frame := spinnerFrames[spinnerFrame%len(spinnerFrames)]
+			spinnerFrame++
 			v.app.QueueUpdateDraw(func() {
-				if totalSize > 0 {
-					pct := float64(bytesRead) / float64(totalSize) * 100
-					v.app.Flash().Info(fmt.Sprintf("⏳ Downloading... %s / %s (%.0f%%)",
-						formatBytes(bytesRead), formatBytes(totalSize), pct))
-				} else {
-					v.app.Flash().Info(fmt.Sprintf("⏳ Downloading... %s", formatBytes(bytesRead)))
-				}
+				v.app.Flash().Info(fmt.Sprintf("%c %s", frame, msg))
 			})
+		}
+
+		// Progress callback to show download progress
+		progress := func(bytesRead int64, totalSize int64) {
+			if totalSize > 0 {
+				pct := float64(bytesRead) / float64(totalSize) * 100
+				showProgress(fmt.Sprintf("Downloading full log... %s / %s (%.0f%%)",
+					formatBytes(bytesRead), formatBytes(totalSize), pct))
+			} else {
+				showProgress(fmt.Sprintf("Downloading full log... %s", formatBytes(bytesRead)))
+			}
 		}
 
 		// Use GetBuildConsoleOutputFullWithProgress for complete logs
@@ -276,13 +301,23 @@ func (v *LogsView) goToBeginning() {
 			return
 		}
 
+		// Show processing message
+		showProgress(fmt.Sprintf("Processing %s of log data...", formatBytes(int64(len(text)))))
+
+		// For very large logs, write directly to TextView without storing lines
+		// This is much faster than splitting into lines and iterating
 		v.app.QueueUpdateDraw(func() {
-			// Replace log lines with full log
-			v.logLines = strings.Split(text, "\n")
+			v.textView.Clear()
+			// Write the entire log at once - tview handles this efficiently
+			v.textView.SetText(text)
 			v.hasFullLog = true
-			v.renderLog()
+			// Clear logLines to save memory - we have the text in TextView
+			v.logLines = nil
 			v.textView.ScrollToBeginning()
-			v.app.Flash().Info(fmt.Sprintf("✓ Loaded %d lines (%s)", len(v.logLines), formatBytes(int64(len(text)))))
+
+			// Count lines for the message
+			lineCount := strings.Count(text, "\n") + 1
+			v.app.Flash().Info(fmt.Sprintf("✓ Loaded %d lines (%s)", lineCount, formatBytes(int64(len(text)))))
 		})
 	}()
 }
@@ -348,7 +383,18 @@ func (v *LogsView) startStreaming() {
 	}
 
 	go func() {
+		// Don't use separate spinner - we'll show progress inline
+		spinnerFrame := 0
+		showProgress := func(msg string) {
+			frame := spinnerFrames[spinnerFrame%len(spinnerFrames)]
+			spinnerFrame++
+			v.app.QueueUpdateDraw(func() {
+				v.app.Flash().Info(fmt.Sprintf("%c %s", frame, msg))
+			})
+		}
+
 		// Try to load from cache first for completed builds
+		showProgress("Checking cache...")
 		if v.tryLoadFromCache() {
 			return
 		}
@@ -358,30 +404,83 @@ func (v *LogsView) startStreaming() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		// Show initial loading message
-		v.app.QueueUpdateDraw(func() {
-			v.app.Flash().Info("⏳ Loading logs...")
-		})
+		showProgress("Connecting to Jenkins...")
 
-		// Initial fetch
-		text, newOffset, moreData, err := v.app.Client().StreamBuildConsoleOutput(
-			ctx, v.jobName, v.buildNum, offset,
-		)
-		if err == nil && text != "" {
+		// For tail mode, we want to start near the end of the log (last ~500KB)
+		// First, get the log size without downloading content
+		const tailSize int64 = 500 * 1024 // 500KB tail
+		logSize, _, probeErr := v.app.Client().GetBuildConsoleSize(ctx, v.jobName, v.buildNum)
+		if probeErr == nil && logSize > tailSize {
+			// Start from near the end
+			offset = logSize - tailSize
+			showProgress(fmt.Sprintf("Log is %s, fetching last %s...", formatBytes(logSize), formatBytes(tailSize)))
+		}
+
+		// Progress callback for download - always show progress
+		progressCallback := func(bytesRead, totalSize int64) {
+			if totalSize > 0 {
+				pct := float64(bytesRead) / float64(totalSize) * 100
+				showProgress(fmt.Sprintf("Downloading... %s / %s (%.0f%%)",
+					formatBytes(bytesRead), formatBytes(totalSize), pct))
+			} else {
+				showProgress(fmt.Sprintf("Downloading... %s", formatBytes(bytesRead)))
+			}
+		}
+
+		// Initial fetch with retry
+		var text string
+		var newOffset int64
+		var moreData bool
+		var err error
+
+		for retries := 0; retries < 3; retries++ {
+			text, newOffset, moreData, err = v.app.Client().StreamBuildConsoleOutputWithProgress(
+				ctx, v.jobName, v.buildNum, offset, progressCallback,
+			)
+			if err == nil {
+				break
+			}
+			showProgress(fmt.Sprintf("Retrying... (%d/3)", retries+1))
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		if err != nil {
+			v.app.QueueUpdateDraw(func() {
+				v.app.Flash().Err(fmt.Errorf("failed to load logs: %w", err))
+			})
+			return
+		}
+
+		if text != "" {
 			totalBytes += int64(len(text))
 			v.app.QueueUpdateDraw(func() {
 				v.appendText(text)
-				v.app.Flash().Info(fmt.Sprintf("Loaded %s", formatBytes(totalBytes)))
+				if moreData {
+					v.app.Flash().Info(fmt.Sprintf("⏳ Loaded %s (streaming...)", formatBytes(totalBytes)))
+				} else {
+					v.app.Flash().Info(fmt.Sprintf("✓ Loaded %s", formatBytes(totalBytes)))
+				}
 			})
+		} else {
+			// No content on initial fetch
+			showProgress("Waiting for log output...")
 		}
 		offset = newOffset
 
 		if !moreData {
-			// Build complete, cache the log
+			// Build complete
+			v.app.QueueUpdateDraw(func() {
+				if totalBytes > 0 {
+					v.app.Flash().Info(fmt.Sprintf("✓ Log complete: %s", formatBytes(totalBytes)))
+				} else {
+					v.app.Flash().Info("✓ Build complete (no log output)")
+				}
+			})
 			v.cacheLog()
 			return
 		}
 
+		// Continue streaming
 		for {
 			select {
 			case <-ctx.Done():
@@ -391,6 +490,7 @@ func (v *LogsView) startStreaming() {
 					ctx, v.jobName, v.buildNum, offset,
 				)
 				if err != nil {
+					showProgress(fmt.Sprintf("Error: %v (retrying...)", err))
 					continue
 				}
 
@@ -398,10 +498,11 @@ func (v *LogsView) startStreaming() {
 					totalBytes += int64(len(text))
 					v.app.QueueUpdateDraw(func() {
 						v.appendText(text)
-						if v.autoScroll {
-							v.app.Flash().Info(fmt.Sprintf("Streaming... %s", formatBytes(totalBytes)))
-						}
+						v.app.Flash().Info(fmt.Sprintf("⏳ Streaming... %s", formatBytes(totalBytes)))
 					})
+				} else if totalBytes == 0 {
+					// Still waiting for first content
+					showProgress("Waiting for log output...")
 				}
 
 				offset = newOffset
@@ -409,7 +510,11 @@ func (v *LogsView) startStreaming() {
 				// Stop polling if no more data and build is complete
 				if !moreData {
 					v.app.QueueUpdateDraw(func() {
-						v.app.Flash().Info(fmt.Sprintf("✓ Log complete: %s", formatBytes(totalBytes)))
+						if totalBytes > 0 {
+							v.app.Flash().Info(fmt.Sprintf("✓ Log complete: %s", formatBytes(totalBytes)))
+						} else {
+							v.app.Flash().Info("✓ Build complete (no log output)")
+						}
 					})
 					// Cache the completed log
 					v.cacheLog()
@@ -511,9 +616,9 @@ func (v *LogsView) renderLog() {
 	v.textView.Clear()
 
 	if v.filter == "" {
-		// No filter - just show last N lines
+		// If we have full log, show all lines; otherwise show last N lines (tail mode)
 		start := 0
-		if len(v.logLines) > maxLogLines {
+		if !v.hasFullLog && len(v.logLines) > maxLogLines {
 			start = len(v.logLines) - maxLogLines
 		}
 		for i := start; i < len(v.logLines); i++ {

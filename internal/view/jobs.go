@@ -18,13 +18,14 @@ import (
 // JobsView displays Jenkins jobs.
 type JobsView struct {
 	*tview.Flex
-	app         *App
-	table       *ui.Table
-	actions     *ui.KeyActions
-	folderPath  string       // Current folder path (empty for root)
-	jobs        []client.Job // Current jobs list
-	autoRefresh *time.Ticker
-	stopRefresh chan struct{}
+	app              *App
+	table            *ui.Table
+	actions          *ui.KeyActions
+	folderPath       string       // Current folder path (empty for root)
+	jobs             []client.Job // Current jobs list
+	autoRefresh      *time.Ticker
+	stopRefresh      chan struct{}
+	pendingSelection string // ID to select after data loads
 }
 
 // NewJobsView returns a new jobs view.
@@ -78,6 +79,41 @@ func (v *JobsView) GetFilter() string {
 	return v.table.GetFilter()
 }
 
+// GetJenkinsURL returns the Jenkins web UI URL for this view.
+func (v *JobsView) GetJenkinsURL() string {
+	ctx, _ := v.app.Config().ActiveContext()
+	if ctx == nil {
+		return ""
+	}
+	return GenerateJenkinsURL(ctx.URL, v.GetViewPath())
+}
+
+// GetViewPath returns the internal view path for bookmarking.
+func (v *JobsView) GetViewPath() string {
+	if v.folderPath != "" {
+		return "jobs/" + v.folderPath
+	}
+	return "jobs"
+}
+
+// SelectByID selects the job with the given name.
+// Implements the Selectable interface for selection restoration.
+// If data hasn't loaded yet, stores the ID for selection after load.
+func (v *JobsView) SelectByID(id string) bool {
+	// Try to select immediately
+	if v.table.SelectByID(id) {
+		return true
+	}
+	// If not found, store for later (data might not be loaded yet)
+	v.pendingSelection = id
+	return false
+}
+
+// GetSelectedID returns the currently selected job name.
+func (v *JobsView) GetSelectedID() string {
+	return v.table.GetSelectedID()
+}
+
 func (v *JobsView) bindKeys() {
 	// Add global keys first
 	AddGlobalKeys(v.app, v.actions)
@@ -100,7 +136,7 @@ func (v *JobsView) bindKeys() {
 		ui.KeyShiftA: ui.NewKeyAction("Sort Age", v.sortByAgeCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())
@@ -174,7 +210,7 @@ func (v *JobsView) renderJobs(jobs []client.Job) {
 
 		// For folders, show different info
 		if job.IsFolder() {
-			status = "[aqua::b]📁[-::-]"
+			status = "-"
 			health = "-"
 			lastBuild = "-"
 			result = "-"
@@ -200,6 +236,12 @@ func (v *JobsView) renderJobs(jobs []client.Job) {
 	}
 	v.table.SetTitle(title)
 	v.table.Refresh()
+
+	// Apply pending selection if any (e.g., from bookmark navigation)
+	if v.pendingSelection != "" {
+		v.table.SelectByID(v.pendingSelection)
+		v.pendingSelection = "" // Clear after applying
+	}
 }
 
 func (v *JobsView) enterCmd(*tcell.EventKey) *tcell.EventKey {
@@ -454,36 +496,36 @@ func (v *JobsView) refreshCmd(*tcell.EventKey) *tcell.EventKey {
 func colorizeStatus(color string) string {
 	switch color {
 	case "blue", "blue_anime":
-		return "[green::b]●[-::-]"
+		return "[#859900::b]●[-::-]" // solarized green
 	case "red", "red_anime":
-		return "[red::b]●[-::-]"
+		return "[#dc322f::b]●[-::-]" // solarized red
 	case "yellow", "yellow_anime":
-		return "[yellow::b]●[-::-]"
+		return "[#b58900::b]●[-::-]" // solarized yellow
 	case "disabled", "disabled_anime":
-		return "[gray::b]●[-::-]"
+		return "[#586e75::b]●[-::-]" // solarized base01
 	case "notbuilt", "notbuilt_anime":
-		return "[white::b]○[-::-]"
+		return "[#93a1a1::b]○[-::-]" // solarized base1
 	case "aborted", "aborted_anime":
-		return "[gray::b]◌[-::-]"
+		return "[#586e75::b]◌[-::-]" // solarized base01
 	default:
-		return "[white::b]?[-::-]"
+		return "[#93a1a1::b]?[-::-]" // solarized base1
 	}
 }
 
 func colorizeResult(result string) string {
 	switch result {
 	case "SUCCESS":
-		return "[green::b]SUCCESS[-::-]"
+		return "[#859900::b]SUCCESS[-::-]" // solarized green
 	case "FAILURE":
-		return "[red::b]FAILURE[-::-]"
+		return "[#dc322f::b]FAILURE[-::-]" // solarized red
 	case "UNSTABLE":
-		return "[yellow::b]UNSTABLE[-::-]"
+		return "[#b58900::b]UNSTABLE[-::-]" // solarized yellow
 	case "ABORTED":
-		return "[gray::b]ABORTED[-::-]"
+		return "[#586e75::b]ABORTED[-::-]" // solarized base01
 	case "BUILDING":
-		return "[aqua::b]BUILDING[-::-]"
+		return "[#268bd2::b]BUILDING[-::-]" // solarized blue
 	case "NOT_BUILT":
-		return "[white::-]NOT_BUILT[-::-]"
+		return "[#93a1a1::-]NOT_BUILT[-::-]" // solarized base1
 	default:
 		return result
 	}

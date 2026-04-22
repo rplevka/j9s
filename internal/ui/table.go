@@ -141,6 +141,22 @@ func (t *Table) GetSelectedID() string {
 	return item[0]
 }
 
+// SelectByID selects the row with the given ID (first column value).
+// Returns true if the row was found and selected.
+func (t *Table) SelectByID(id string) bool {
+	t.mx.RLock()
+	defer t.mx.RUnlock()
+
+	for i, row := range t.filtered {
+		if len(row) > 0 && row[0] == id {
+			// Row index is i+1 because row 0 is the header
+			t.Select(i+1, 0)
+			return true
+		}
+	}
+	return false
+}
+
 // Filter sets the filter string and re-filters data.
 func (t *Table) Filter(s string) {
 	t.mx.Lock()
@@ -171,28 +187,34 @@ func (t *Table) GetFilter() string {
 
 func (t *Table) applyFilter() {
 	if t.filter == "" {
-		t.filtered = t.rows
-		return
-	}
+		// Make a copy to avoid sorting the original rows
+		t.filtered = make([][]string, len(t.rows))
+		copy(t.filtered, t.rows)
+	} else {
+		// Try to compile as regex, fall back to substring match
+		rx, err := regexp.Compile("(?i)" + t.filter)
+		useRegex := err == nil
 
-	// Try to compile as regex, fall back to substring match
-	rx, err := regexp.Compile("(?i)" + t.filter)
-	useRegex := err == nil
-
-	t.filtered = make([][]string, 0)
-	for _, row := range t.rows {
-		for _, cell := range row {
-			var matches bool
-			if useRegex {
-				matches = rx.MatchString(cell)
-			} else {
-				matches = containsIgnoreCase(cell, t.filter)
-			}
-			if matches {
-				t.filtered = append(t.filtered, row)
-				break
+		t.filtered = make([][]string, 0)
+		for _, row := range t.rows {
+			for _, cell := range row {
+				var matches bool
+				if useRegex {
+					matches = rx.MatchString(cell)
+				} else {
+					matches = containsIgnoreCase(cell, t.filter)
+				}
+				if matches {
+					t.filtered = append(t.filtered, row)
+					break
+				}
 			}
 		}
+	}
+
+	// Re-apply sort if a sort column is set
+	if t.sortCol >= 0 {
+		t.sortData()
 	}
 }
 
@@ -404,6 +426,16 @@ func (t *Table) sortData() {
 			return aNum > bNum
 		}
 
+		// Try age/duration comparison (e.g., "5m", "2h", "3d")
+		aDur := parseAgeDuration(a)
+		bDur := parseAgeDuration(b)
+		if aDur >= 0 && bDur >= 0 {
+			if t.sortAsc {
+				return aDur < bDur
+			}
+			return aDur > bDur
+		}
+
 		// Fall back to string comparison (case-insensitive)
 		cmp := strings.Compare(strings.ToLower(a), strings.ToLower(b))
 		if t.sortAsc {
@@ -411,6 +443,40 @@ func (t *Table) sortData() {
 		}
 		return cmp > 0
 	})
+}
+
+// parseAgeDuration parses age strings like "5s", "10m", "2h", "3d" into seconds.
+// Returns -1 if the string is not a valid age format.
+func parseAgeDuration(s string) int64 {
+	if len(s) < 2 {
+		return -1
+	}
+
+	// Handle empty or dash values
+	if s == "-" || s == "" {
+		return -1
+	}
+
+	unit := s[len(s)-1]
+	numStr := s[:len(s)-1]
+
+	num, err := strconv.ParseInt(numStr, 10, 64)
+	if err != nil {
+		return -1
+	}
+
+	switch unit {
+	case 's':
+		return num
+	case 'm':
+		return num * 60
+	case 'h':
+		return num * 3600
+	case 'd':
+		return num * 86400
+	default:
+		return -1
+	}
 }
 
 // stripColorTags removes tview color tags from a string for comparison.

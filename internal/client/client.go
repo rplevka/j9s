@@ -587,61 +587,92 @@ func (c *Client) GetBuildConsoleOutputFull(ctx context.Context, jobName string, 
 }
 
 // GetBuildConsoleOutputFullWithProgress returns the FULL console output with progress callback.
-// Uses progressiveText API with start=0 to get complete log, then continues until X-More-Data is false.
+// Uses /consoleText endpoint which returns the complete log in one request.
 func (c *Client) GetBuildConsoleOutputFullWithProgress(ctx context.Context, jobName string, buildNumber int, progress ProgressFunc) (string, error) {
-	var result strings.Builder
-	var offset int64 = 0
+	// Use consoleText endpoint for complete log (not progressiveText which is for streaming)
+	path := fmt.Sprintf("%s/%d/consoleText", jobPath(jobName), buildNumber)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return result.String(), ctx.Err()
-		default:
-		}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
 
-		// Use progressiveText endpoint which handles large logs better
-		path := fmt.Sprintf("%s/%d/logText/progressiveText?start=%d", jobPath(jobName), buildNumber, offset)
-		resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
-		if err != nil {
-			return result.String(), err
-		}
+	// Get total size from Content-Length if available
+	var totalSize int64
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		fmt.Sscanf(cl, "%d", &totalSize)
+	}
 
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return result.String(), fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-
-		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return result.String(), err
-		}
-
-		if len(data) > 0 {
-			result.Write(data)
-			if progress != nil {
-				progress(int64(result.Len()), 0)
+	// Read with progress reporting
+	var data []byte
+	if progress != nil {
+		// Read in chunks and report progress
+		buf := make([]byte, 64*1024) // 64KB chunks
+		var bytesRead int64
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				data = append(data, buf[:n]...)
+				bytesRead += int64(n)
+				progress(bytesRead, totalSize)
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				return string(data), readErr
 			}
 		}
-
-		// Get the next offset from X-Text-Size header
-		if s := resp.Header.Get("X-Text-Size"); s != "" {
-			fmt.Sscanf(s, "%d", &offset)
-		}
-
-		// Check if there's more data
-		moreData := resp.Header.Get("X-More-Data") == "true"
-		if !moreData {
-			break
+	} else {
+		data, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
 		}
 	}
 
-	return result.String(), nil
+	return string(data), nil
+}
+
+// GetBuildConsoleSize returns the current size of the build console log.
+// This is useful for determining where to start tailing from.
+func (c *Client) GetBuildConsoleSize(ctx context.Context, jobName string, buildNumber int) (int64, bool, error) {
+	// Use progressiveText with a very high start offset to just get the X-Text-Size header
+	// without downloading any content
+	path := fmt.Sprintf("%s/%d/logText/progressiveText?start=999999999999", jobPath(jobName), buildNumber)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer resp.Body.Close()
+
+	// Discard any body content (should be empty or minimal)
+	io.Copy(io.Discard, resp.Body)
+
+	// Get the total size from X-Text-Size header
+	var size int64
+	if s := resp.Header.Get("X-Text-Size"); s != "" {
+		fmt.Sscanf(s, "%d", &size)
+	}
+
+	// Check if build is still running
+	moreData := resp.Header.Get("X-More-Data") == "true"
+
+	return size, moreData, nil
 }
 
 // StreamBuildConsoleOutput streams the console output for a build.
 func (c *Client) StreamBuildConsoleOutput(ctx context.Context, jobName string, buildNumber int, start int64) (string, int64, bool, error) {
+	return c.StreamBuildConsoleOutputWithProgress(ctx, jobName, buildNumber, start, nil)
+}
+
+// StreamBuildConsoleOutputWithProgress streams console output with a progress callback.
+// The progress callback receives bytes read so far and total size (from Content-Length, 0 if unknown).
+func (c *Client) StreamBuildConsoleOutputWithProgress(ctx context.Context, jobName string, buildNumber int, start int64, progress func(bytesRead, totalSize int64)) (string, int64, bool, error) {
 	path := fmt.Sprintf("%s/%d/logText/progressiveText?start=%d", jobPath(jobName), buildNumber, start)
 	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
 	if err != nil {
@@ -649,9 +680,38 @@ func (c *Client) StreamBuildConsoleOutput(ctx context.Context, jobName string, b
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", start, false, err
+	// Get total size from Content-Length if available
+	var totalSize int64
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		fmt.Sscanf(cl, "%d", &totalSize)
+	}
+
+	// Read with progress reporting
+	var data []byte
+	if progress != nil {
+		// Read in chunks and report progress
+		buf := make([]byte, 32*1024) // 32KB chunks
+		var bytesRead int64
+		for {
+			n, readErr := resp.Body.Read(buf)
+			if n > 0 {
+				data = append(data, buf[:n]...)
+				bytesRead += int64(n)
+				progress(bytesRead, totalSize) // totalSize may be 0 if unknown
+			}
+			if readErr == io.EOF {
+				break
+			}
+			if readErr != nil {
+				return "", start, false, readErr
+			}
+		}
+	} else {
+		// No progress callback - read all at once
+		data, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return "", start, false, err
+		}
 	}
 
 	// Get the next start position from header

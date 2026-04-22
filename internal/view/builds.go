@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/derailed/tcell/v2"
@@ -19,12 +20,13 @@ import (
 // BuildsView displays Jenkins builds for a job.
 type BuildsView struct {
 	*tview.Flex
-	app         *App
-	table       *ui.Table
-	actions     *ui.KeyActions
-	jobName     string
-	autoRefresh *time.Ticker
-	stopRefresh chan struct{}
+	app              *App
+	table            *ui.Table
+	actions          *ui.KeyActions
+	jobName          string
+	autoRefresh      *time.Ticker
+	stopRefresh      chan struct{}
+	pendingSelection string // ID to select after data loads
 }
 
 // NewBuildsView returns a new builds view.
@@ -57,6 +59,46 @@ func (v *BuildsView) Hints() model.MenuHints {
 	return v.actions.Hints()
 }
 
+// GetJenkinsURL returns the Jenkins web UI URL for this view.
+func (v *BuildsView) GetJenkinsURL() string {
+	ctx, _ := v.app.Config().ActiveContext()
+	if ctx == nil {
+		return ""
+	}
+	return GenerateJenkinsURL(ctx.URL, v.GetViewPath())
+}
+
+// GetViewPath returns the internal view path for bookmarking.
+func (v *BuildsView) GetViewPath() string {
+	if v.jobName != "" {
+		return "builds/" + v.jobName
+	}
+	return "builds"
+}
+
+// GetParentID returns the job name this builds view was opened from.
+// This is used to restore selection when navigating back.
+// Returns just the job name (without folder path) to match the jobs table.
+func (v *BuildsView) GetParentID() string {
+	// Extract just the job name from full path (e.g., "folder/job-name" -> "job-name")
+	if idx := strings.LastIndex(v.jobName, "/"); idx >= 0 {
+		return v.jobName[idx+1:]
+	}
+	return v.jobName
+}
+
+// SelectByID selects the build with the given number (e.g., "#123").
+// Implements the Selectable interface for selection restoration.
+// If data hasn't loaded yet, stores the ID for selection after load.
+func (v *BuildsView) SelectByID(id string) bool {
+	if v.table.SelectByID(id) {
+		return true
+	}
+	// Store for later if data not loaded yet
+	v.pendingSelection = id
+	return false
+}
+
 func (v *BuildsView) bindKeys() {
 	AddGlobalKeys(v.app, v.actions)
 
@@ -74,7 +116,9 @@ func (v *BuildsView) bindKeys() {
 		ui.KeyShiftA: ui.NewKeyAction("Sort Age", v.sortByAgeCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	// Set input capture on the Flex (view) itself, not just the table
+	// This ensures key events are captured even when focus is on the Flex
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())
@@ -141,6 +185,12 @@ func (v *BuildsView) renderBuilds(builds []client.Build) {
 	v.table.SetData(rows)
 	v.table.SetTitle("Builds:" + v.jobName)
 	v.table.Refresh()
+
+	// Apply pending selection if any (e.g., from bookmark navigation)
+	if v.pendingSelection != "" {
+		v.table.SelectByID(v.pendingSelection)
+		v.pendingSelection = "" // Clear after applying
+	}
 }
 
 func (v *BuildsView) logsCmd(*tcell.EventKey) *tcell.EventKey {

@@ -132,8 +132,14 @@ func (a *App) SetFilterMode(b bool) {
 
 // Run starts the application.
 func (a *App) Run() error {
-	// Start with default view
-	a.gotoResource("jobs")
+	// Check for bookmark and navigate to it, otherwise default to jobs
+	bookmark := a.Config().GetBookmark()
+	if bookmark != "" {
+		// Navigate to bookmark with proper parent view stack
+		a.command.navigateToBookmarkWithStack(bookmark)
+	} else {
+		a.gotoResource("jobs")
+	}
 	return a.Application.Run()
 }
 

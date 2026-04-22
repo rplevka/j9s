@@ -49,7 +49,7 @@ func (v *ContextsView) bindKeys() {
 		tcell.KeyEnter: ui.NewKeyAction("Switch", v.switchCmd, true),
 	})
 
-	v.table.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
+	v.SetInputCapture(func(evt *tcell.EventKey) *tcell.EventKey {
 		key := evt.Key()
 		if key == tcell.KeyRune {
 			key = tcell.Key(evt.Rune())
