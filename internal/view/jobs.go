@@ -126,8 +126,7 @@ func (v *JobsView) bindKeys() {
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Build", v.triggerCmd, true),
-		ui.KeyE:        ui.NewKeyAction("Enable", v.enableCmd, true),
-		ui.KeyShiftD:   ui.NewKeyAction("Disable", v.disableCmd, true),
+		ui.KeyShiftE:   ui.NewKeyAction("Toggle", v.toggleEnabledCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		tcell.KeyCtrlD: ui.NewKeyAction("Delete", v.deleteCmd, true),
 		// Sorting shortcuts
@@ -407,24 +406,47 @@ func (v *JobsView) triggerCmd(*tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
-func (v *JobsView) enableCmd(*tcell.EventKey) *tcell.EventKey {
+// toggleEnabledCmd flips the enabled state of the selected job: a
+// Buildable job is disabled, a non-Buildable one is enabled. Folders are
+// skipped since they are not directly buildable.
+func (v *JobsView) toggleEnabledCmd(*tcell.EventKey) *tcell.EventKey {
 	jobName := v.table.GetSelectedID()
 	if jobName == "" {
 		return nil
 	}
-	// Include folder path for nested jobs
 	fullJobName := jobName
 	if v.folderPath != "" {
 		fullJobName = v.folderPath + "/" + jobName
 	}
 
+	var selected *client.Job
+	for i := range v.jobs {
+		if v.jobs[i].Name == jobName {
+			selected = &v.jobs[i]
+			break
+		}
+	}
+	if selected == nil {
+		return nil
+	}
+	if selected.IsFolder() {
+		v.app.Flash().Warn("Folders cannot be enabled or disabled")
+		return nil
+	}
+
+	action := chooseToggleAction(selected.Buildable)
 	go func() {
-		err := v.app.Client().EnableJob(context.Background(), fullJobName)
+		var err error
+		if action == "disable" {
+			err = v.app.Client().DisableJob(context.Background(), fullJobName)
+		} else {
+			err = v.app.Client().EnableJob(context.Background(), fullJobName)
+		}
 		v.app.QueueUpdateDraw(func() {
 			if err != nil {
 				v.app.Flash().Err(err)
 			} else {
-				v.app.Flash().Info(fmt.Sprintf("Job %s enabled", fullJobName))
+				v.app.Flash().Info(fmt.Sprintf("Job %s %sd", fullJobName, action))
 			}
 			v.refresh()
 		})
@@ -432,29 +454,13 @@ func (v *JobsView) enableCmd(*tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
-func (v *JobsView) disableCmd(*tcell.EventKey) *tcell.EventKey {
-	jobName := v.table.GetSelectedID()
-	if jobName == "" {
-		return nil
+// chooseToggleAction picks the verb to send to Jenkins based on the job's
+// current Buildable flag.
+func chooseToggleAction(buildable bool) string {
+	if buildable {
+		return "disable"
 	}
-	// Include folder path for nested jobs
-	fullJobName := jobName
-	if v.folderPath != "" {
-		fullJobName = v.folderPath + "/" + jobName
-	}
-
-	go func() {
-		err := v.app.Client().DisableJob(context.Background(), fullJobName)
-		v.app.QueueUpdateDraw(func() {
-			if err != nil {
-				v.app.Flash().Err(err)
-			} else {
-				v.app.Flash().Info(fmt.Sprintf("Job %s disabled", fullJobName))
-			}
-			v.refresh()
-		})
-	}()
-	return nil
+	return "enable"
 }
 
 func (v *JobsView) deleteCmd(*tcell.EventKey) *tcell.EventKey {

@@ -51,6 +51,24 @@ func TestJobsView_RendersTopLevelJobs(t *testing.T) {
 	assert.True(t, names["team-a"])
 }
 
+// TestChooseToggleAction encodes the contract of the merged enable/disable
+// hotkey: a buildable job toggles to "disable", a non-buildable one toggles
+// to "enable".
+func TestChooseToggleAction(t *testing.T) {
+	cases := []struct {
+		buildable bool
+		want      string
+	}{
+		{buildable: true, want: "disable"},
+		{buildable: false, want: "enable"},
+	}
+	for _, tc := range cases {
+		if got := chooseToggleAction(tc.buildable); got != tc.want {
+			t.Errorf("chooseToggleAction(%v) = %q, want %q", tc.buildable, got, tc.want)
+		}
+	}
+}
+
 // TestJobsView_RendersFolderContents covers the nested-folder navigation
 // path: a JobsView pinned to "team-a" pulls the folder listing via
 // GetFolderJobs and renders only the children of that folder.
