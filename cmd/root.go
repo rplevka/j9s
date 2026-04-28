@@ -91,7 +91,7 @@ func run(*cobra.Command, []string) error {
 	}
 
 	app := view.NewApp(cfg)
-	if err := app.Init(version, int(*j9sFlags.RefreshRate)); err != nil {
+	if err := app.Init(displayVersion(version, commit), int(*j9sFlags.RefreshRate)); err != nil {
 		return err
 	}
 	if err := app.Run(); err != nil {
