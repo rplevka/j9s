@@ -209,7 +209,7 @@ func (v *ViewJobsView) bindKeys() {
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
 		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
-		ui.KeyT:        ui.NewKeyAction("Trigger", v.triggerCmd, true),
+		ui.KeyB:        ui.NewKeyAction("Build", v.triggerCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
 	})

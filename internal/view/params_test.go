@@ -36,6 +36,36 @@ func TestParamsView_DefaultsFocusToBuildButton(t *testing.T) {
 	assert.Same(t, want, got, "form should delegate focus to the Build button by default")
 }
 
+// TestParamsView_PrePopulatesParameterDefaults asserts that when no
+// lastValues are provided (the fresh trigger flow), each field still picks
+// up the value from ParameterDef.DefaultParameterValue: the string field
+// gets its default, the dropdown lands on the default choice, and the
+// boolean checkbox is checked when the default is true. This regression
+// test guards against the GetJob tree= query forgetting to expand
+// defaultParameterValue.
+func TestParamsView_PrePopulatesParameterDefaults(t *testing.T) {
+	params := []client.ParameterDef{
+		{Name: "BRANCH", Class: "hudson.model.StringParameterDefinition", DefaultParameterValue: &client.ParamValue{Value: "main"}},
+		{Name: "ENV", Class: "hudson.model.ChoiceParameterDefinition", Choices: []string{"dev", "prod"}, DefaultParameterValue: &client.ParamValue{Value: "prod"}},
+		{Name: "DRY_RUN", Class: "hudson.model.BooleanParameterDefinition", DefaultParameterValue: &client.ParamValue{Value: true}},
+	}
+	v := NewParamsView(nil, "hello", params, nil, func(map[string]string) {}, func() {})
+
+	branch, ok := v.form.GetFormItem(0).(*tview.InputField)
+	require.True(t, ok)
+	assert.Equal(t, "main", branch.GetText())
+
+	envDD, ok := v.form.GetFormItem(1).(*tview.DropDown)
+	require.True(t, ok)
+	idx, opt := envDD.GetCurrentOption()
+	assert.Equal(t, 1, idx)
+	assert.Equal(t, "prod", opt)
+
+	dryRun, ok := v.form.GetFormItem(2).(*tview.Checkbox)
+	require.True(t, ok)
+	assert.True(t, dryRun.IsChecked(), "boolean default=true should pre-check the checkbox")
+}
+
 // TestParamsView_PrePopulatesLastValues asserts that when lastValues
 // override the parameter defaults (the rebuild flow), the form's text
 // fields surface those values.

@@ -447,7 +447,11 @@ func jobPath(name string) string {
 
 // GetJob returns a specific job.
 func (c *Client) GetJob(ctx context.Context, name string) (*Job, error) {
-	path := jobPath(name) + "/api/json?tree=*,property[*,parameterDefinitions[*]],lastBuild[number,actions[parameters[*]]]"
+	// Note: parameterDefinitions[*] alone does NOT expand the nested
+	// defaultParameterValue object — Jenkins' tree= filter only descends one
+	// level. Without defaultParameterValue[*] the .Value field is missing,
+	// which breaks default-value pre-fill in the trigger build dialog.
+	path := jobPath(name) + "/api/json?tree=*,property[*,parameterDefinitions[*,defaultParameterValue[*]]],lastBuild[number,actions[parameters[*]]]"
 	data, err := c.get(ctx, path)
 	if err != nil {
 		return nil, err
