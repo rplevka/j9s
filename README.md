@@ -1,14 +1,22 @@
-# j9s - Jenkins TUI Manager
+# j9s — Jenkins TUI Manager
 
 A terminal UI for managing Jenkins instances, inspired by [k9s](https://github.com/derailed/k9s).
 
+> **Status**: under active development. Expect breaking changes to keys/commands until 1.0.
+
 ## Features
 
-- **k9s-like interface**: Same TUI patterns, vim-like keybindings, and navigation
-- **Multi-context support**: Manage multiple Jenkins instances
-- **Resource views**: Jobs, Builds, Queue, Nodes, Users, Credentials, Plugins, Views
-- **Actions**: Trigger builds, view logs, enable/disable jobs, and more
-- **Authentication**: Supports API token, password, and OAuth/SSO
+- **k9s-style interface** — same TUI patterns, vim-like keybindings, breadcrumbs, command prompt.
+- **Multi-context** — switch between Jenkins instances on the fly via `:ctx <name>`.
+- **Resource views** — Jobs (with nested folders), Builds, Queue, Nodes, Users, Credentials, Plugins, Views.
+- **Path-aware command prompt** — argument-aware autocomplete suggesting values from the current view, qualified with the active folder path. Typing `:builds d` from `team-a/sub` completes to `:builds team-a/sub/deploy`.
+- **Live logs** — streaming console output with filtering, wrap toggle, autoscroll, mark, copy, save, full-screen, head/tail.
+- **Build actions** — trigger parameterised builds (params dialog with pre-filled defaults and Build button focused), rebuild last, stop running builds, view artifacts, describe config.
+- **Job toggle** — single `Shift+E` to toggle Enable/Disable; `e` reserved for future edit.
+- **Sorting** — `Shift+N`/`Shift+S`/`Shift+R`/`Shift+A` per view (name/status/result/age depending on context).
+- **Bookmarks** — save the current view path and jump back later.
+- **HTTP cache** — opt-in response cache with `:cache stats` / `:cache clear`.
+- **Auth** — API token (recommended), password, OAuth/SSO.
 
 ## Installation
 
@@ -16,20 +24,24 @@ A terminal UI for managing Jenkins instances, inspired by [k9s](https://github.c
 go install github.com/roman-plevka/j9s@latest
 ```
 
-Or build from source:
+Or build from source (always produces `bin/j9s`):
 
 ```bash
 git clone https://github.com/roman-plevka/j9s.git
 cd j9s
-go build -o j9s .
+make build      # → bin/j9s
+make install    # → $GOPATH/bin/j9s
 ```
+
+`make build` injects the short commit SHA into the version string, so the header shows `dev-<sha>` on local builds.
 
 ## Configuration
 
-Create a config file at `~/.j9s/config.yaml`:
+Config lives at `~/.config/j9s/config.yaml` (or `$XDG_CONFIG_HOME/j9s/config.yaml`).
 
 ```yaml
 j9s:
+  refreshRate: 2
   currentContext: my-jenkins
   contexts:
     - name: my-jenkins
@@ -44,12 +56,12 @@ j9s:
         type: token
         username: admin
         token: admin-api-token
-      insecure: true  # Skip TLS verification
+      insecure: true   # skip TLS verification
 ```
 
-### Authentication Types
+### Authentication types
 
-**API Token (recommended)**:
+**API token (recommended):**
 ```yaml
 auth:
   type: token
@@ -57,7 +69,7 @@ auth:
   token: your-api-token
 ```
 
-**Password**:
+**Password:**
 ```yaml
 auth:
   type: password
@@ -65,7 +77,7 @@ auth:
   password: your-password
 ```
 
-**OAuth/SSO**:
+**OAuth / SSO:**
 ```yaml
 auth:
   type: oauth
@@ -79,17 +91,26 @@ auth:
 ## Usage
 
 ```bash
-# Start with default context
+# default context
 j9s
 
-# Start with specific context
+# specific context
 j9s --context my-jenkins
 
-# Start with specific view
+# launch directly into a view (resource alias from the table below)
 j9s -c nodes
 
-# Read-only mode
+# read-only mode — disables destructive actions
 j9s --readonly
+
+# tweak refresh rate (seconds)
+j9s -r 5
+
+# headless / logoless for screencasts
+j9s --headless --logoless
+
+# custom log file / level
+j9s --logFile /tmp/j9s.log --logLevel debug
 ```
 
 ## Keybindings
@@ -99,61 +120,126 @@ j9s --readonly
 |-----|--------|
 | `:` | Command mode |
 | `/` | Filter mode |
-| `Esc` | Back / Clear |
+| `?` | Help |
+| `Esc` | Back / clear filter |
 | `Ctrl+C` | Quit |
 
-### Navigation
+### Navigation (table views)
 | Key | Action |
 |-----|--------|
-| `Enter` | Select / Drill down |
-| `j/k` or `↑/↓` | Navigate up/down |
-| `g` | Go to top |
-| `G` | Go to bottom |
-
-### Jobs View
-| Key | Action |
-|-----|--------|
-| `Enter` | View builds |
-| `d` | Describe (show config) |
-| `t` | Trigger build |
-| `e` | Enable job |
-| `D` | Disable job |
-| `Ctrl+D` | Delete job |
+| `Enter` | Drill down (folder → contents, job → builds, build → logs) |
+| `j`/`k` or `↑`/`↓` | Move row |
+| `g` / `G` | Top / bottom |
 | `r` | Refresh |
 
-### Builds View
+### Jobs view
 | Key | Action |
 |-----|--------|
-| `Enter` or `l` | View logs |
+| `Enter` | Open builds (or descend into folder) |
+| `b` | Trigger build (parameter dialog if applicable) |
+| `d` | Describe (job config) |
+| `a` | Artifacts of last successful build |
+| `l` | Logs of last build |
+| `v` | Switch to Views |
+| `Shift+E` | Toggle Enable/Disable |
+| `Ctrl+D` | Delete |
+| `Shift+N` / `Shift+S` / `Shift+A` | Sort by name / status / age |
+
+### Views (Jenkins views) and ViewJobs
+| Key | Action |
+|-----|--------|
+| `Enter` | Open jobs in this view |
+| `b` | Trigger build (ViewJobs) |
+| `d` | Describe |
+| `a` / `l` | Artifacts / Logs (ViewJobs) |
+| `v` | Switch to Views |
+
+### Builds view
+| Key | Action |
+|-----|--------|
+| `Enter` or `l` | Open logs |
+| `b` | Rebuild (re-trigger with the same parameters) |
 | `d` | Describe build |
-| `s` | Stop build |
-| `r` | Refresh |
+| `a` | Artifacts |
+| `s` | Stop running build |
+| `Shift+N` / `Shift+R` / `Shift+A` | Sort by number / result / age |
 
-### Logs View
+### Logs view
 | Key | Action |
 |-----|--------|
-| `/` | Filter logs |
-| `g` | Go to top |
-| `G` | Go to bottom |
+| `/` | Filter |
+| `Shift+C` | Clear filter |
+| `g` / `Shift+G` | Top / bottom |
+| `0` / `1` | Tail / head |
 | `w` | Toggle wrap |
-| `s` | Toggle auto-scroll |
-| `Esc` | Back |
+| `s` | Toggle autoscroll |
+| `f` | Full-screen toggle |
+| `m` | Mark line |
+| `c` | Copy to clipboard |
+| `Ctrl+S` | Save to file |
+| `q` / `Esc` | Back |
+
+### Queue
+| Key | Action |
+|-----|--------|
+| `Ctrl+D` | Cancel queued item |
 
 ## Commands
 
-Type `:` to enter command mode, then:
+Type `:` to enter command mode. Resource aliases:
 
 | Command | Aliases | Description |
 |---------|---------|-------------|
-| `jobs` | `job`, `j` | View jobs |
-| `builds` | `build`, `b` | View builds |
-| `queue` | `q` | View build queue |
-| `nodes` | `node`, `n`, `agents` | View nodes/agents |
-| `users` | `user`, `u` | View users |
-| `credentials` | `cred`, `creds`, `cr` | View credentials |
-| `plugins` | `plugin`, `pl` | View plugins |
-| `views` | `view`, `v` | View Jenkins views |
+| `jobs` | `job`, `j` | Jobs (root) |
+| `builds` | `build`, `b` | Builds |
+| `queue` | `qu` | Build queue |
+| `nodes` | `node`, `n`, `agents`, `agent` | Nodes / agents |
+| `users` | `user`, `u` | Users |
+| `credentials` | `cred`, `creds`, `cr` | Credentials |
+| `plugins` | `plugin`, `pl` | Plugins |
+| `views` | `view`, `v` | Jenkins views |
 | `contexts` | `context`, `ctx` | Switch contexts |
+
+### Path-aware navigation
+
+Resource commands accept a path argument and push the matching nested view onto the stack (so `Esc` returns where you came from):
+
+| Example | Result |
+|---------|--------|
+| `:jobs team-a/sub` | Jobs view scoped to folder `team-a/sub` |
+| `:builds team-a/sub/deploy` | Builds for nested job `team-a/sub/deploy` |
+| `:logs team-a/sub/deploy/42` | Console output of build #42 |
+| `:views team-a` | Jenkins views inside folder `team-a` |
+| `:ctx prod` | Switch active Jenkins context to `prod` |
+
+The prompt offers argument-aware autocomplete: while inside `team-a/sub`, typing `:builds d` ghosts to `:builds team-a/sub/deploy`. Suggestions come from whatever the current view exposes (jobs, contexts, view names), so a single Tab usually finishes the line.
+
+### Other commands
+
+| Command | Description |
+|---------|-------------|
+| `:url <jenkins-url>` | Connect ad-hoc to a Jenkins URL without editing config |
+| `:bookmark` / `:bm` | List / save / jump bookmarks for the current view path |
+| `:cache [clear\|stats]` | Inspect or wipe the HTTP cache |
+| `:?`, `:h`, `:help` | Inline command cheatsheet |
+| `:q`, `:q!`, `:qa`, `:quit`, `:exit` | Quit |
+
+## Files & directories
+
+| Path | Purpose |
+|------|---------|
+| `~/.config/j9s/config.yaml` | Main configuration |
+| `~/.local/state/j9s/j9s.log` | Default log file (override with `--logFile`) |
+| `bin/j9s` | Build artifact produced by `make build` |
+
+## Testing
+
+The repo ships a Jenkins mock server (`internal/client/mock`) with a fluent API for stubbing jobs, folders, builds, views and live-streaming log endpoints. It backs both client tests and view smoke tests.
+
+```bash
+make test                      # full suite
+go test ./internal/view/...    # view + command-prompt unit tests
+```
 
 ## License
 
