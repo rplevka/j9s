@@ -120,6 +120,11 @@ func (v *ParamsView) setupForm() {
 	// Add buttons
 	v.form.AddButton("Build", v.submit)
 	v.form.AddButton("Cancel", v.cancel)
+
+	// Focus the Build button by default so users can quickly rebuild with
+	// pre-filled values by hitting Enter. tview.Form.SetFocus indexes form
+	// items first, then buttons, so len(items) == first button == "Build".
+	v.form.SetFocus(len(v.params))
 }
 
 func (v *ParamsView) formatLabel(param client.ParameterDef) string {
