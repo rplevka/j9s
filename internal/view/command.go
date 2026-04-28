@@ -146,6 +146,14 @@ func (c *Command) Run(cmd string) {
 		return
 	}
 
+	// Path-based navigation: `<resource> <path>` for jobs/builds/logs/views.
+	// Reuses the bookmark-style createViewFromPath but pushes the new view
+	// onto the stack (without clearing) so Esc returns to the previous view.
+	if res, sub, ok := c.matchResourcePath(cmd); ok {
+		c.navigatePromptPath(res + "/" + sub)
+		return
+	}
+
 	// Try fuzzy match
 	resources := make([]string, 0, len(defaultAliases))
 	for _, a := range defaultAliases {
@@ -642,6 +650,43 @@ func (c *Command) gotoResource(res string) {
 	c.app.Content.Push(view)
 }
 
+// matchResourcePath detects an inline `<resource> <path>` invocation for
+// path-taking commands (jobs, builds, logs, views and their aliases).
+// Returns the canonical resource name, the path, and true on match.
+func (c *Command) matchResourcePath(cmd string) (string, string, bool) {
+	parts := strings.SplitN(cmd, " ", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	head := parts[0]
+	path := strings.TrimSpace(parts[1])
+	if path == "" {
+		return "", "", false
+	}
+	switch head {
+	case "jobs", "job", "j":
+		return "jobs", path, true
+	case "builds", "build", "b":
+		return "builds", path, true
+	case "logs", "log", "l":
+		return "logs", path, true
+	case "views", "view", "v":
+		return "views", path, true
+	}
+	return "", "", false
+}
+
+// navigatePromptPath pushes the view referenced by a "<resource>/<path>"
+// expression onto the content stack. Failures inside createViewFromPath
+// already flash a warning to the user.
+func (c *Command) navigatePromptPath(path string) {
+	view := c.createViewFromPath(path)
+	if view == nil {
+		return
+	}
+	c.app.Content.Push(view)
+}
+
 // matchCtxArg detects an inline `ctx <name>` invocation. Returns the
 // requested context name and true on match.
 func (c *Command) matchCtxArg(cmd string) (string, bool) {
@@ -687,7 +732,8 @@ func (c *Command) Suggest(prefix string) []string {
 		if len(values) == 0 {
 			return nil
 		}
-		return formatArgumentSuggestions(prefix[:idx+1], arg, values)
+		valuePrefix := c.argumentValuePrefix(cmd)
+		return formatArgumentSuggestions(prefix[:idx+1], valuePrefix, arg, values)
 	}
 
 	// First-token completion (existing behavior).
@@ -752,19 +798,54 @@ func (c *Command) argumentValues(cmd string) []string {
 	return nil
 }
 
-// formatArgumentSuggestions filters values by argPrefix, formats each as
-// "<prefixCmd><value>" so the prompt's HasPrefix-based ghost-text logic
-// shows just the completion tail, sorts, and caps the list.
-func formatArgumentSuggestions(prefixCmd, argPrefix string, values []string) []string {
+// argumentValuePrefix returns the path prefix to apply to each argument
+// value before suggesting it. For resource navigation commands on a view
+// that lives inside a folder hierarchy (PathProvider) the suggestions are
+// qualified with that folder path, e.g. "team-a/sub/deploy" instead of a
+// bare "deploy". ctx and other commands have no path prefix.
+func (c *Command) argumentValuePrefix(cmd string) string {
+	switch cmd {
+	case "jobs", "job", "j",
+		"builds", "build", "b",
+		"logs", "log", "l",
+		"views", "view", "v":
+		top := c.app.Content.Top()
+		if top == nil {
+			return ""
+		}
+		if p, ok := top.(PathProvider); ok {
+			path := p.CurrentPath()
+			if path != "" {
+				return path + "/"
+			}
+		}
+	}
+	return ""
+}
+
+// formatArgumentSuggestions filters values by argPrefix, prepends the
+// (optional) value-side path prefix, formats each as
+// "<prefixCmd><valuePrefix><value>" so the prompt's HasPrefix-based
+// ghost-text logic shows just the completion tail, sorts, and caps the
+// list. If argPrefix already starts with the valuePrefix the user is
+// typing the qualified path; otherwise we treat argPrefix as a leaf-only
+// prefix so a bare `builds d` still matches `team-a/sub/deploy`.
+func formatArgumentSuggestions(prefixCmd, valuePrefix, argPrefix string, values []string) []string {
+	lowerVP := strings.ToLower(valuePrefix)
+	leafPrefix := argPrefix
+	if valuePrefix != "" && strings.HasPrefix(argPrefix, lowerVP) {
+		leafPrefix = strings.TrimPrefix(argPrefix, lowerVP)
+	}
+
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		if v == "" {
 			continue
 		}
-		if argPrefix != "" && !strings.HasPrefix(strings.ToLower(v), argPrefix) {
+		if leafPrefix != "" && !strings.HasPrefix(strings.ToLower(v), leafPrefix) {
 			continue
 		}
-		out = append(out, prefixCmd+v)
+		out = append(out, prefixCmd+valuePrefix+v)
 	}
 	sort.Strings(out)
 	if len(out) > 10 {

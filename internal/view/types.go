@@ -20,3 +20,11 @@ type ResourceViewer interface {
 type IDProvider interface {
 	IDs() []string
 }
+
+// PathProvider is implemented by views that live inside a folder
+// hierarchy. The command-prompt autocomplete uses the returned path to
+// qualify suggested IDs so accepted suggestions navigate to the right
+// nested location instead of the root.
+type PathProvider interface {
+	CurrentPath() string
+}

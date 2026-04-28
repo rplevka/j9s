@@ -120,6 +120,13 @@ func (v *JobsView) IDs() []string {
 	return v.table.GetRowIDs()
 }
 
+// CurrentPath returns the folder path this view is scoped to (empty for
+// the root JobsView). Implements PathProvider so command-prompt
+// suggestions can be qualified with the folder path.
+func (v *JobsView) CurrentPath() string {
+	return v.folderPath
+}
+
 func (v *JobsView) bindKeys() {
 	// Add global keys first
 	AddGlobalKeys(v.app, v.actions)
