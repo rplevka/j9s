@@ -373,17 +373,46 @@ func splitBuildSuffix(suffix string) (int, string, bool) {
 
 func (j *JenkinsServer) writeFolderJSON(w http.ResponseWriter, folder string) {
 	jobs := j.childrenOf(folder)
+	views := j.viewsOf(folder)
 	writeJSON(w, struct {
-		Jobs []client.Job `json:"jobs"`
-	}{Jobs: jobs})
+		Jobs  []client.Job  `json:"jobs"`
+		Views []client.View `json:"views,omitempty"`
+	}{Jobs: jobs, Views: views})
+}
+
+// viewsOf returns the views registered for a given folder ("" = root).
+func (j *JenkinsServer) viewsOf(folder string) []client.View {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	owner := j.views[folder]
+	if owner == nil {
+		return nil
+	}
+	out := make([]client.View, 0, len(owner))
+	for name := range owner {
+		out = append(out, client.View{Class: "hudson.model.ListView", Name: name})
+	}
+	return out
 }
 
 func (j *JenkinsServer) writeJobJSON(w http.ResponseWriter, full string) {
 	j.mu.Lock()
 	opts := j.jobs[full]
+	bs := j.builds[full]
 	j.mu.Unlock()
 	parts := strings.Split(full, "/")
 	job := j.jobToClient(parts[len(parts)-1], full, opts)
+	// Include any registered builds so client.GetBuilds (which reads
+	// /job/{name}/api/json?tree=builds[...]) can find them.
+	for num, st := range bs {
+		job.Builds = append(job.Builds, client.Build{
+			Number:    num,
+			Result:    st.opts.Result,
+			Building:  st.opts.Building,
+			Duration:  st.opts.Duration,
+			Timestamp: st.opts.Timestamp,
+		})
+	}
 	writeJSON(w, job)
 }
 
