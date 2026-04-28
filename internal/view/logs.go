@@ -153,6 +153,23 @@ func (v *LogsView) bindKeys() {
 		key := evt.Key()
 		r := evt.Rune()
 
+		// Handle vertical scrolling with up/down arrows - scroll multiple lines for speed
+		const vScrollStep = 3
+		switch key {
+		case tcell.KeyUp:
+			row, col := v.textView.GetScrollOffset()
+			newRow := row - vScrollStep
+			if newRow < 0 {
+				newRow = 0
+			}
+			v.textView.ScrollTo(newRow, col)
+			return nil
+		case tcell.KeyDown:
+			row, col := v.textView.GetScrollOffset()
+			v.textView.ScrollTo(row+vScrollStep, col)
+			return nil
+		}
+
 		// Handle horizontal scrolling with left/right arrows when wrap is disabled
 		// Use step size of 10 columns for faster scrolling (similar to k9s)
 		const hScrollStep = 10

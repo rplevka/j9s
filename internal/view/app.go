@@ -32,6 +32,7 @@ type App struct {
 	showHeader    bool
 	showLogo      bool
 	filterMode    bool // true when in filter mode (/) vs command mode (:)
+	infoView      *tview.TextView
 }
 
 // NewApp returns a new application.
@@ -178,10 +179,21 @@ func (a *App) layout(ctx context.Context) {
 }
 
 func (a *App) buildInfoPanel() tview.Primitive {
-	info := tview.NewTextView()
-	info.SetDynamicColors(true)
-	info.SetBackgroundColor(tcell.ColorDefault)
+	if a.infoView == nil {
+		a.infoView = tview.NewTextView()
+		a.infoView.SetDynamicColors(true)
+		a.infoView.SetBackgroundColor(tcell.ColorDefault)
+	}
+	a.refreshInfoPanel()
+	return a.infoView
+}
 
+// refreshInfoPanel updates the header info panel text from the current
+// active context. Safe to call after a context switch.
+func (a *App) refreshInfoPanel() {
+	if a.infoView == nil {
+		return
+	}
 	ctx, _ := a.Config().ActiveContext()
 	ctxName := "N/A"
 	url := "N/A"
@@ -189,13 +201,10 @@ func (a *App) buildInfoPanel() tview.Primitive {
 		ctxName = ctx.Name
 		url = ctx.URL
 	}
-
-	info.SetText(fmt.Sprintf(
+	a.infoView.SetText(fmt.Sprintf(
 		"[aqua::b]Context:[white::-] %s\n[aqua::b]URL:[white::-] %s\n[aqua::b]Version:[white::-] %s",
 		ctxName, url, a.version,
 	))
-
-	return info
 }
 
 func (a *App) initSignals() {
@@ -346,5 +355,7 @@ func (a *App) SwitchContext(name string) error {
 	if err := a.Config().Save(config.AppConfigFile); err != nil {
 		slog.Warn("Failed to save config", "error", err)
 	}
-	return a.initClient()
+	err := a.initClient()
+	a.refreshInfoPanel()
+	return err
 }
