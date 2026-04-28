@@ -112,7 +112,13 @@ func (c *Command) Run(cmd string) {
 
 	// Check for help commands
 	if helpCommands[cmd] {
-		c.app.Flash().Info("Commands: jobs, builds, queue, nodes, views, contexts | bookmark, url <jenkins-url> | cache [clear|stats] | :q to quit")
+		c.app.Flash().Info("Commands: jobs, builds, queue, nodes, views | ctx [<name>], bookmark, url <jenkins-url> | cache [clear|stats] | :q to quit")
+		return
+	}
+
+	// ctx <name> switches the active Jenkins context.
+	if res, ok := c.matchCtxArg(cmd); ok {
+		c.switchContext(res)
 		return
 	}
 
@@ -636,24 +642,60 @@ func (c *Command) gotoResource(res string) {
 	c.app.Content.Push(view)
 }
 
-// Suggest returns command suggestions for autocomplete.
+// matchCtxArg detects an inline `ctx <name>` invocation. Returns the
+// requested context name and true on match.
+func (c *Command) matchCtxArg(cmd string) (string, bool) {
+	parts := strings.Fields(cmd)
+	if len(parts) != 2 {
+		return "", false
+	}
+	switch parts[0] {
+	case "ctx", "context", "contexts":
+		return parts[1], true
+	}
+	return "", false
+}
+
+// switchContext switches the active Jenkins context by name and pushes a
+// fresh JobsView, mirroring ContextsView.switchCmd.
+func (c *Command) switchContext(name string) {
+	if err := c.app.SwitchContext(name); err != nil {
+		c.app.Flash().Err(err)
+		return
+	}
+	c.app.Flash().Info("Switched to context: " + name)
+	c.app.Content.Clear()
+	c.app.Content.Push(NewJobsView(c.app))
+}
+
+// Suggest returns command suggestions for autocomplete. If the input has
+// no space, suggestions are command names. Once the user types a space the
+// source switches to argument values: contexts from config for `ctx`,
+// IDs of the current top view for resource navigation commands.
 func (c *Command) Suggest(prefix string) []string {
 	if prefix == "" {
 		return nil
 	}
 
-	prefix = strings.ToLower(prefix)
+	lower := strings.ToLower(prefix)
 
-	// Collect all possible commands
+	// Argument-aware completion: split on the first space.
+	if idx := strings.Index(lower, " "); idx >= 0 {
+		cmd := lower[:idx]
+		arg := strings.TrimLeft(lower[idx+1:], " ")
+		values := c.argumentValues(cmd)
+		if len(values) == 0 {
+			return nil
+		}
+		return formatArgumentSuggestions(prefix[:idx+1], arg, values)
+	}
+
+	// First-token completion (existing behavior).
 	allCommands := make([]string, 0)
-
-	// Add resource commands
 	for _, a := range defaultAliases {
 		allCommands = append(allCommands, a.Resource)
 		allCommands = append(allCommands, a.Aliases...)
 	}
-
-	// Add special commands
 	for cmd := range quitCommands {
 		allCommands = append(allCommands, cmd)
 	}
@@ -664,19 +706,69 @@ func (c *Command) Suggest(prefix string) []string {
 		allCommands = append(allCommands, cmd)
 	}
 
-	// Find matching commands that start with prefix
 	suggestions := make([]string, 0)
 	for _, cmd := range allCommands {
-		if strings.HasPrefix(cmd, prefix) && cmd != prefix {
+		if strings.HasPrefix(cmd, lower) && cmd != lower {
 			suggestions = append(suggestions, cmd)
 		}
 	}
 
-	// Sort and dedupe
 	sort.Strings(suggestions)
 	if len(suggestions) > 5 {
-		suggestions = suggestions[:5] // Limit to 5 suggestions
+		suggestions = suggestions[:5]
 	}
-
 	return suggestions
+}
+
+// argumentValues returns the candidate argument values for a given command
+// token. ctx variants source from the configured Jenkins contexts; the
+// resource navigation commands source from the current top view's IDs.
+func (c *Command) argumentValues(cmd string) []string {
+	switch cmd {
+	case "ctx", "context", "contexts":
+		cfg := c.app.Config()
+		if cfg == nil || cfg.J9s == nil {
+			return nil
+		}
+		out := make([]string, 0, len(cfg.J9s.Contexts))
+		for _, ctx := range cfg.J9s.Contexts {
+			out = append(out, ctx.Name)
+		}
+		return out
+
+	case "jobs", "job", "j",
+		"builds", "build", "b",
+		"logs", "log", "l",
+		"views", "view", "v":
+		top := c.app.Content.Top()
+		if top == nil {
+			return nil
+		}
+		if p, ok := top.(IDProvider); ok {
+			return p.IDs()
+		}
+		return nil
+	}
+	return nil
+}
+
+// formatArgumentSuggestions filters values by argPrefix, formats each as
+// "<prefixCmd><value>" so the prompt's HasPrefix-based ghost-text logic
+// shows just the completion tail, sorts, and caps the list.
+func formatArgumentSuggestions(prefixCmd, argPrefix string, values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if argPrefix != "" && !strings.HasPrefix(strings.ToLower(v), argPrefix) {
+			continue
+		}
+		out = append(out, prefixCmd+v)
+	}
+	sort.Strings(out)
+	if len(out) > 10 {
+		out = out[:10]
+	}
+	return out
 }

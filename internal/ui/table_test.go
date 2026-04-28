@@ -283,3 +283,34 @@ func TestTable_SelectByID(t *testing.T) {
 		})
 	}
 }
+
+func TestTable_GetRowIDs(t *testing.T) {
+	t.Run("empty table", func(t *testing.T) {
+		table := NewTable()
+		assert.Empty(t, table.GetRowIDs())
+	})
+
+	t.Run("populated table", func(t *testing.T) {
+		table := NewTable()
+		table.SetHeaders([]string{"NAME", "STATUS"})
+		table.SetData([][]string{
+			{"alpha", "SUCCESS"},
+			{"beta", "FAILURE"},
+			{"gamma", "RUNNING"},
+		})
+		assert.Equal(t, []string{"alpha", "beta", "gamma"}, table.GetRowIDs())
+	})
+
+	t.Run("filtered table", func(t *testing.T) {
+		table := NewTable()
+		table.SetHeaders([]string{"NAME", "STATUS"})
+		table.SetData([][]string{
+			{"alpha", "SUCCESS"},
+			{"beta", "FAILURE"},
+			{"alphabet", "RUNNING"},
+		})
+		table.Filter("alph")
+		ids := table.GetRowIDs()
+		assert.ElementsMatch(t, []string{"alpha", "alphabet"}, ids)
+	})
+}

@@ -114,6 +114,12 @@ func (v *JobsView) GetSelectedID() string {
 	return v.table.GetSelectedID()
 }
 
+// IDs returns the displayed job/folder names. Implements IDProvider so the
+// command prompt can offer them as argument suggestions.
+func (v *JobsView) IDs() []string {
+	return v.table.GetRowIDs()
+}
+
 func (v *JobsView) bindKeys() {
 	// Add global keys first
 	AddGlobalKeys(v.app, v.actions)

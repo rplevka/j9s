@@ -13,3 +13,10 @@ type ResourceViewer interface {
 	model.Component
 	tview.Primitive
 }
+
+// IDProvider is implemented by views that expose the first-column IDs of
+// the rows they currently display. Used by command-prompt argument
+// autocomplete to suggest values from whatever the user is looking at.
+type IDProvider interface {
+	IDs() []string
+}

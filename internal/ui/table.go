@@ -141,6 +141,22 @@ func (t *Table) GetSelectedID() string {
 	return item[0]
 }
 
+// GetRowIDs returns the first column of every currently visible (filtered)
+// row in the order they are displayed. Used by argument-aware command
+// autocomplete to suggest values from the current view.
+func (t *Table) GetRowIDs() []string {
+	t.mx.RLock()
+	defer t.mx.RUnlock()
+
+	ids := make([]string, 0, len(t.filtered))
+	for _, row := range t.filtered {
+		if len(row) > 0 {
+			ids = append(ids, row[0])
+		}
+	}
+	return ids
+}
+
 // SelectByID selects the row with the given ID (first column value).
 // Returns true if the row was found and selected.
 func (t *Table) SelectByID(id string) bool {

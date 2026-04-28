@@ -45,6 +45,12 @@ func NewViewsViewWithPath(app *App, folderPath string) *ViewsView {
 	return v
 }
 
+// IDs returns the displayed view names so the command prompt can offer
+// them as argument suggestions.
+func (v *ViewsView) IDs() []string {
+	return v.table.GetRowIDs()
+}
+
 // Name returns the view name.
 func (v *ViewsView) Name() string {
 	if v.folderPath != "" {
@@ -181,6 +187,12 @@ func NewViewJobsView(app *App, folderPath, viewName string) *ViewJobsView {
 	v.refresh()
 	v.startAutoRefresh()
 	return v
+}
+
+// IDs returns the displayed job names so the command prompt can offer
+// them as argument suggestions.
+func (v *ViewJobsView) IDs() []string {
+	return v.table.GetRowIDs()
 }
 
 // Name returns the view name.
