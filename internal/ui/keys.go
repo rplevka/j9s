@@ -63,3 +63,25 @@ const (
 	Key8 tcell.Key = tcell.Key('8')
 	Key9 tcell.Key = tcell.Key('9')
 )
+
+// initShiftKeyNames registers human-readable names for Shift-letter keys so
+// they render distinctly in the menu (e.g. "<shift-d>" vs "<d>"). Mirrors the
+// k9s pattern (see internal/ui/key.go in k9s).
+func initShiftKeyNames() {
+	tcell.KeyNames[KeyShiftA] = "Shift-A"
+	tcell.KeyNames[KeyShiftB] = "Shift-B"
+	tcell.KeyNames[KeyShiftC] = "Shift-C"
+	tcell.KeyNames[KeyShiftD] = "Shift-D"
+	tcell.KeyNames[KeyShiftE] = "Shift-E"
+	tcell.KeyNames[KeyShiftF] = "Shift-F"
+	tcell.KeyNames[KeyShiftG] = "Shift-G"
+	tcell.KeyNames[KeyShiftK] = "Shift-K"
+	tcell.KeyNames[KeyShiftL] = "Shift-L"
+	tcell.KeyNames[KeyShiftN] = "Shift-N"
+	tcell.KeyNames[KeyShiftR] = "Shift-R"
+	tcell.KeyNames[KeyShiftS] = "Shift-S"
+}
+
+func init() {
+	initShiftKeyNames()
+}

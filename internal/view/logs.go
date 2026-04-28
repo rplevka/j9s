@@ -138,7 +138,7 @@ func (v *LogsView) bindKeys() {
 		ui.KeyG:        ui.NewKeyAction("Top (gg)", nil, true), // Just for hint, handled in input capture
 		ui.KeyW:        ui.NewKeyAction("Wrap", v.toggleWrapCmd, true),
 		ui.KeyS:        ui.NewKeyAction("AutoScroll", v.toggleScrollCmd, true),
-		ui.KeyShiftC:   ui.NewKeyAction("Clear", v.clearFilterCmd, true),
+		ui.KeyShiftC:   ui.NewKeyAction("Clear Filter", v.clearFilterCmd, true),
 		ui.KeyC:        ui.NewKeyAction("Copy", v.copyCmd, true),
 		ui.KeyF:        ui.NewKeyAction("FullScreen", v.toggleFullScreenCmd, true),
 		ui.KeyM:        ui.NewKeyAction("Mark", v.markCmd, true),
