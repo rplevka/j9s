@@ -38,11 +38,32 @@ func NewDescribeView(app *App, resourceType, resourceName string) *DescribeView 
 		resourceName: resourceName,
 	}
 
+	// Match the framing used by table-based views (Jobs/Builds) and
+	// LogsView: aqua border + left-aligned styled title on the Flex,
+	// inner padding on the textview so content is not flush with the
+	// border. Without this, the describe view rendered as raw text with
+	// no chrome, making it visually disconnected from the rest of j9s.
+	v.SetBorder(true)
+	v.SetBorderColor(tcell.ColorAqua)
+	v.SetTitleColor(tcell.ColorAqua)
+	v.SetTitleAlign(tview.AlignLeft)
+	v.textView.SetBorderPadding(0, 0, 1, 1)
+	v.SetTitle(v.styledTitle())
+
 	v.AddItem(v.textView, 0, 1, true)
 	v.bindKeys()
 	v.refresh()
 
 	return v
+}
+
+// styledTitle formats the describe-view title with the same accent
+// styling as ui.Table — " Describe(<type>):<resource> ".
+func (v *DescribeView) styledTitle() string {
+	return fmt.Sprintf(
+		" [aqua::b]Describe[white::d](%s)[aqua::b]:%s ",
+		v.resourceType, v.resourceName,
+	)
 }
 
 // Name returns the view name.
