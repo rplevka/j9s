@@ -597,6 +597,34 @@ func (c *Command) createViewFromPath(path string) ResourceViewer {
 			c.app.Flash().Warn("Invalid logs path")
 			return nil
 		}
+	case "tests":
+		// tests/<jobPath>/<buildNum> — same shape as logs/.
+		if subPath != "" {
+			if idx := strings.LastIndex(subPath, "/"); idx >= 0 {
+				jobName := subPath[:idx]
+				if buildNum, err := strconv.Atoi(subPath[idx+1:]); err == nil {
+					view = NewTestSuitesView(c.app, jobName, buildNum)
+				}
+			}
+		}
+		if view == nil {
+			c.app.Flash().Warn("Invalid tests path; expected tests/<jobPath>/<buildNum>")
+			return nil
+		}
+	case "reports":
+		// reports/<jobPath>/<buildNum> — same shape as logs/.
+		if subPath != "" {
+			if idx := strings.LastIndex(subPath, "/"); idx >= 0 {
+				jobName := subPath[:idx]
+				if buildNum, err := strconv.Atoi(subPath[idx+1:]); err == nil {
+					view = NewHTMLReportsView(c.app, jobName, buildNum)
+				}
+			}
+		}
+		if view == nil {
+			c.app.Flash().Warn("Invalid reports path; expected reports/<jobPath>/<buildNum>")
+			return nil
+		}
 	case "views":
 		if subPath != "" {
 			view = NewViewsViewWithPath(c.app, subPath)
@@ -672,6 +700,10 @@ func (c *Command) matchResourcePath(cmd string) (string, string, bool) {
 		return "logs", path, true
 	case "views", "view", "v":
 		return "views", path, true
+	case "tests", "test":
+		return "tests", path, true
+	case "reports", "report":
+		return "reports", path, true
 	}
 	return "", "", false
 }

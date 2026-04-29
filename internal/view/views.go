@@ -221,6 +221,8 @@ func (v *ViewJobsView) bindKeys() {
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
 		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
+		ui.KeyT:        ui.NewKeyAction("Tests", v.testsCmd, true),
+		ui.KeyH:        ui.NewKeyAction("Reports", v.reportsCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Build", v.triggerCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
@@ -382,6 +384,26 @@ func (v *ViewJobsView) logsCmd(*tcell.EventKey) *tcell.EventKey {
 	}
 	logsView := NewLogsView(v.app, v.getFullJobName(job.Name), job.LastBuild.Number)
 	v.app.Content.Push(logsView)
+	return nil
+}
+
+func (v *ViewJobsView) testsCmd(*tcell.EventKey) *tcell.EventKey {
+	job := v.getSelectedJob()
+	if job == nil || job.LastBuild == nil {
+		v.app.Flash().Warn("No builds available for this job")
+		return nil
+	}
+	v.app.Content.Push(NewTestSuitesView(v.app, v.getFullJobName(job.Name), job.LastBuild.Number))
+	return nil
+}
+
+func (v *ViewJobsView) reportsCmd(*tcell.EventKey) *tcell.EventKey {
+	job := v.getSelectedJob()
+	if job == nil || job.LastBuild == nil {
+		v.app.Flash().Warn("No builds available for this job")
+		return nil
+	}
+	v.app.Content.Push(NewHTMLReportsView(v.app, v.getFullJobName(job.Name), job.LastBuild.Number))
 	return nil
 }
 

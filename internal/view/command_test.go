@@ -228,6 +228,26 @@ func TestCommand_RunNavigatesPathBased(t *testing.T) {
 		require.True(t, ok, "top view should be *ViewsView, got %T", top)
 		assert.Equal(t, "team-a", vv.folderPath)
 	})
+
+	t.Run("tests <jobPath>/<buildNum>", func(t *testing.T) {
+		c, app := newTestCommand(t, nil)
+		c.Run("tests team-a/sub/deploy/3")
+		top := app.Content.Top()
+		tv, ok := top.(*TestSuitesView)
+		require.True(t, ok, "top view should be *TestSuitesView, got %T", top)
+		assert.Equal(t, "team-a/sub/deploy", tv.jobName)
+		assert.Equal(t, 3, tv.buildNum)
+	})
+
+	t.Run("reports <jobPath>/<buildNum>", func(t *testing.T) {
+		c, app := newTestCommand(t, nil)
+		c.Run("reports team-a/sub/deploy/3")
+		top := app.Content.Top()
+		rv, ok := top.(*HTMLReportsView)
+		require.True(t, ok, "top view should be *HTMLReportsView, got %T", top)
+		assert.Equal(t, "team-a/sub/deploy", rv.jobName)
+		assert.Equal(t, 3, rv.buildNum)
+	})
 }
 
 func TestCommand_MatchResourcePath(t *testing.T) {
@@ -244,6 +264,10 @@ func TestCommand_MatchResourcePath(t *testing.T) {
 		{"builds team-a/sub/deploy", "builds", "team-a/sub/deploy", true},
 		{"b deploy", "builds", "deploy", true},
 		{"logs team-a/sub/deploy/3", "logs", "team-a/sub/deploy/3", true},
+		{"tests team-a/sub/deploy/3", "tests", "team-a/sub/deploy/3", true},
+		{"test deploy/1", "tests", "deploy/1", true},
+		{"reports team-a/deploy/3", "reports", "team-a/deploy/3", true},
+		{"report deploy/1", "reports", "deploy/1", true},
 		{"views my-view", "views", "my-view", true},
 		{"jobs", "", "", false},
 		{"jobs   ", "", "", false},

@@ -137,6 +137,8 @@ func (v *JobsView) bindKeys() {
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
 		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
+		ui.KeyT:        ui.NewKeyAction("Tests", v.testsCmd, true),
+		ui.KeyH:        ui.NewKeyAction("Reports", v.reportsCmd, true),
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Build", v.triggerCmd, true),
 		ui.KeyShiftE:   ui.NewKeyAction("Toggle", v.toggleEnabledCmd, true),
@@ -365,6 +367,48 @@ func (v *JobsView) logsCmd(*tcell.EventKey) *tcell.EventKey {
 
 	logsView := NewLogsView(v.app, fullJobName, selectedJob.LastBuild.Number)
 	v.app.Content.Push(logsView)
+	return nil
+}
+
+// selectedJobLastBuild looks up the cursor row, returns the full job
+// path and the last build number, or ("", 0, false) when the row is
+// empty or the job has no builds yet (a flash is emitted in that case).
+func (v *JobsView) selectedJobLastBuild() (string, int, bool) {
+	jobName := v.table.GetSelectedID()
+	if jobName == "" {
+		return "", 0, false
+	}
+	fullJobName := jobName
+	if v.folderPath != "" {
+		fullJobName = v.folderPath + "/" + jobName
+	}
+	for i := range v.jobs {
+		if v.jobs[i].Name == jobName {
+			if v.jobs[i].LastBuild == nil {
+				v.app.Flash().Warn("No builds available for this job")
+				return "", 0, false
+			}
+			return fullJobName, v.jobs[i].LastBuild.Number, true
+		}
+	}
+	return "", 0, false
+}
+
+func (v *JobsView) testsCmd(*tcell.EventKey) *tcell.EventKey {
+	full, num, ok := v.selectedJobLastBuild()
+	if !ok {
+		return nil
+	}
+	v.app.Content.Push(NewTestSuitesView(v.app, full, num))
+	return nil
+}
+
+func (v *JobsView) reportsCmd(*tcell.EventKey) *tcell.EventKey {
+	full, num, ok := v.selectedJobLastBuild()
+	if !ok {
+		return nil
+	}
+	v.app.Content.Push(NewHTMLReportsView(v.app, full, num))
 	return nil
 }
 

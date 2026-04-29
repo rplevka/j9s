@@ -107,6 +107,8 @@ func (v *BuildsView) bindKeys() {
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyD:        ui.NewKeyAction("Describe", v.describeCmd, true),
 		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
+		ui.KeyT:        ui.NewKeyAction("Tests", v.testsCmd, true),
+		ui.KeyH:        ui.NewKeyAction("Reports", v.reportsCmd, true),
 		ui.KeyS:        ui.NewKeyAction("Stop", v.stopCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Rebuild", v.rebuildCmd, true),
@@ -220,6 +222,24 @@ func (v *BuildsView) artifactsCmd(*tcell.EventKey) *tcell.EventKey {
 	}
 	artifactsView := NewArtifactsView(v.app, v.jobName, buildNum)
 	v.app.Content.Push(artifactsView)
+	return nil
+}
+
+func (v *BuildsView) testsCmd(*tcell.EventKey) *tcell.EventKey {
+	buildNum := v.getSelectedBuildNumber()
+	if buildNum <= 0 {
+		return nil
+	}
+	v.app.Content.Push(NewTestSuitesView(v.app, v.jobName, buildNum))
+	return nil
+}
+
+func (v *BuildsView) reportsCmd(*tcell.EventKey) *tcell.EventKey {
+	buildNum := v.getSelectedBuildNumber()
+	if buildNum <= 0 {
+		return nil
+	}
+	v.app.Content.Push(NewHTMLReportsView(v.app, v.jobName, buildNum))
 	return nil
 }
 
