@@ -550,6 +550,23 @@ func colorizeResult(result string) string {
 	}
 }
 
+// colorizeTestStatus styles a JUnit-plugin test-case status using the
+// same solarized palette as colorizeResult so the test browser feels
+// visually consistent with the rest of j9s. PASSED/FIXED render green,
+// FAILED/REGRESSION red, SKIPPED yellow.
+func colorizeTestStatus(status string) string {
+	switch status {
+	case "PASSED", "FIXED":
+		return "[#859900::b]" + status + "[-::-]"
+	case "FAILED", "REGRESSION":
+		return "[#dc322f::b]" + status + "[-::-]"
+	case "SKIPPED":
+		return "[#b58900::b]" + status + "[-::-]"
+	default:
+		return status
+	}
+}
+
 func formatAge(t time.Time) string {
 	d := time.Since(t)
 	switch {
