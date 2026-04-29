@@ -383,6 +383,51 @@ type Plugin struct {
 	Version             string `json:"version"`
 }
 
+// TestReport mirrors the JUnit-plugin /testReport/api/json document.
+// Only fields surfaced by j9s views are decoded; the rest are silently
+// dropped by encoding/json.
+type TestReport struct {
+	Class     string      `json:"_class"`
+	Duration  float64     `json:"duration"`
+	Empty     bool        `json:"empty"`
+	FailCount int         `json:"failCount"`
+	PassCount int         `json:"passCount"`
+	SkipCount int         `json:"skipCount"`
+	Suites    []TestSuite `json:"suites"`
+}
+
+// TestSuite is a single <testsuite> from the report. Cases live inline.
+type TestSuite struct {
+	Name     string     `json:"name"`
+	Duration float64    `json:"duration"`
+	Cases    []TestCase `json:"cases"`
+}
+
+// TestCase is a single <testcase>. Status follows the JUnit plugin's
+// values: PASSED, FAILED, SKIPPED, REGRESSION, FIXED.
+type TestCase struct {
+	ClassName       string  `json:"className"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	Duration        float64 `json:"duration"`
+	ErrorDetails    string  `json:"errorDetails,omitempty"`
+	ErrorStackTrace string  `json:"errorStackTrace,omitempty"`
+	Skipped         bool    `json:"skipped,omitempty"`
+	SkippedMessage  string  `json:"skippedMessage,omitempty"`
+	Stdout          string  `json:"stdout,omitempty"`
+	Stderr          string  `json:"stderr,omitempty"`
+}
+
+// HTMLReport is one HTML Publisher report attached to a build. j9s does
+// not render the HTML; it lists reports and lets the user open them in
+// the system browser via the Jenkins URL or copy the URL.
+type HTMLReport struct {
+	// URLName is the path segment under the build (e.g. "pytest_html").
+	URLName string `json:"urlName"`
+	// ReportName is the human-friendly name shown by Jenkins.
+	ReportName string `json:"reportName"`
+}
+
 // View represents a Jenkins view.
 type View struct {
 	Class       string `json:"_class"`
@@ -990,6 +1035,70 @@ func (c *Client) GetBuildArtifacts(ctx context.Context, jobName string, buildNum
 		return nil, err
 	}
 	return build.Artifacts, nil
+}
+
+// GetTestReport returns the JUnit-plugin test report for a build. Returns
+// (nil, nil) when the build does not publish a JUnit report (404), so
+// callers can distinguish "no report" from genuine errors.
+func (c *Client) GetTestReport(ctx context.Context, jobName string, buildNumber int) (*TestReport, error) {
+	path := fmt.Sprintf("%s/%d/testReport/api/json?tree=duration,empty,failCount,passCount,skipCount,suites[name,duration,cases[className,name,status,duration,errorDetails,errorStackTrace,skipped,skippedMessage,stdout,stderr]]", jobPath(jobName), buildNumber)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var report TestReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, fmt.Errorf("failed to parse test report: %w", err)
+	}
+	return &report, nil
+}
+
+// GetHTMLReports returns the list of HTML Publisher reports attached to
+// the build. Reports are detected by scanning the build's actions[] for
+// any entry that has both urlName and reportName populated, which is
+// what htmlpublisher.HtmlPublisherTarget / HtmlPublisherBuildAction
+// surface in the JSON tree. Other plugins that follow the same shape
+// (e.g. some pytest-html targets) are picked up automatically.
+func (c *Client) GetHTMLReports(ctx context.Context, jobName string, buildNumber int) ([]HTMLReport, error) {
+	path := fmt.Sprintf("%s/%d/api/json?tree=actions[_class,urlName,reportName,reportTitles]", jobPath(jobName), buildNumber)
+	data, err := c.get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload struct {
+		Actions []struct {
+			URLName    string `json:"urlName"`
+			ReportName string `json:"reportName"`
+		} `json:"actions"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse build actions: %w", err)
+	}
+
+	out := make([]HTMLReport, 0, len(payload.Actions))
+	for _, a := range payload.Actions {
+		if a.URLName == "" || a.ReportName == "" {
+			continue
+		}
+		out = append(out, HTMLReport{URLName: a.URLName, ReportName: a.ReportName})
+	}
+	return out, nil
 }
 
 // DownloadArtifact downloads an artifact and returns its content.

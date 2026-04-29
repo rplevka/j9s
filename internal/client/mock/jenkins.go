@@ -69,6 +69,10 @@ type buildState struct {
 	// buf is the full log accumulated so far (canned Console + delivered
 	// live chunks).
 	buf []byte
+	// testReport, when non-nil, is served at /testReport/api/json.
+	testReport *client.TestReport
+	// htmlReports are surfaced as actions[] entries on the build JSON.
+	htmlReports []client.HTMLReport
 }
 
 // JenkinsServer is a fluent fake Jenkins instance backed by httptest.Server.
@@ -168,6 +172,44 @@ func (j *JenkinsServer) WithLiveBuild(jobFullName string, num int, chunks []stri
 		opts:       BuildOpts{Building: true, Result: ""},
 		liveChunks: live,
 	}
+	return j
+}
+
+// WithTestReport attaches a JUnit-plugin test report to a previously
+// registered build. The build must already exist (use WithBuild first).
+// Pass-through helper around the typed client.TestReport so tests can
+// build whatever shape they need.
+func (j *JenkinsServer) WithTestReport(jobFullName string, num int, report client.TestReport) *JenkinsServer {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	bs := j.builds[jobFullName]
+	if bs == nil {
+		j.t.Fatalf("WithTestReport: build %s#%d not registered", jobFullName, num)
+	}
+	st := bs[num]
+	if st == nil {
+		j.t.Fatalf("WithTestReport: build %s#%d not registered", jobFullName, num)
+	}
+	cp := report
+	st.testReport = &cp
+	return j
+}
+
+// WithHTMLReport adds one HTML Publisher report to a build's actions[].
+// urlName is the path segment under the build URL; reportName is the
+// human-friendly title.
+func (j *JenkinsServer) WithHTMLReport(jobFullName string, num int, urlName, reportName string) *JenkinsServer {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	bs := j.builds[jobFullName]
+	if bs == nil {
+		j.t.Fatalf("WithHTMLReport: build %s#%d not registered", jobFullName, num)
+	}
+	st := bs[num]
+	if st == nil {
+		j.t.Fatalf("WithHTMLReport: build %s#%d not registered", jobFullName, num)
+	}
+	st.htmlReports = append(st.htmlReports, client.HTMLReport{URLName: urlName, ReportName: reportName})
 	return j
 }
 
@@ -319,6 +361,8 @@ func (j *JenkinsServer) handleJobScoped(w http.ResponseWriter, r *http.Request) 
 	switch buildSuffix {
 	case "api/json":
 		j.writeBuildJSON(w, full, num)
+	case "testReport/api/json":
+		j.writeTestReportJSON(w, full, num)
 	case "consoleText":
 		j.writeConsoleText(w, full, num)
 	case "logText/progressiveText":
@@ -432,19 +476,56 @@ func (j *JenkinsServer) writeViewJSON(w http.ResponseWriter, folder, name string
 func (j *JenkinsServer) writeBuildJSON(w http.ResponseWriter, full string, num int) {
 	j.mu.Lock()
 	st := j.lookupBuild(full, num)
+	var htmlActions []map[string]interface{}
+	if st != nil && len(st.htmlReports) > 0 {
+		htmlActions = make([]map[string]interface{}, 0, len(st.htmlReports))
+		for _, r := range st.htmlReports {
+			htmlActions = append(htmlActions, map[string]interface{}{
+				"_class":     "htmlpublisher.HtmlPublisherTarget$HTMLAction",
+				"urlName":    r.URLName,
+				"reportName": r.ReportName,
+			})
+		}
+	}
 	j.mu.Unlock()
 	if st == nil {
 		http.NotFound(w, nil)
 		return
 	}
-	b := client.Build{
-		Number:    num,
-		Result:    st.opts.Result,
-		Building:  st.opts.Building,
-		Duration:  st.opts.Duration,
-		Timestamp: st.opts.Timestamp,
+	// Encode with the typed Build first, then merge in the synthetic
+	// htmlpublisher actions[] entries. We sidestep client.Build's typed
+	// Actions field (BuildAction with parameters/causes only) so the
+	// HtmlPublisher action shape passes through verbatim.
+	doc := map[string]interface{}{
+		"number":    num,
+		"result":    st.opts.Result,
+		"building":  st.opts.Building,
+		"duration":  st.opts.Duration,
+		"timestamp": st.opts.Timestamp,
 	}
-	writeJSON(w, b)
+	if htmlActions != nil {
+		doc["actions"] = htmlActions
+	}
+	writeJSON(w, doc)
+}
+
+// writeTestReportJSON serves the JUnit /testReport/api/json document for
+// a build. Returns 404 when the build has no test report attached, which
+// matches Jenkins' real behavior and is what client.GetTestReport uses
+// to detect "no report" without surfacing a hard error.
+func (j *JenkinsServer) writeTestReportJSON(w http.ResponseWriter, full string, num int) {
+	j.mu.Lock()
+	st := j.lookupBuild(full, num)
+	var report *client.TestReport
+	if st != nil {
+		report = st.testReport
+	}
+	j.mu.Unlock()
+	if report == nil {
+		http.NotFound(w, nil)
+		return
+	}
+	writeJSON(w, report)
 }
 
 func (j *JenkinsServer) writeConsoleText(w http.ResponseWriter, full string, num int) {
