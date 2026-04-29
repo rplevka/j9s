@@ -12,6 +12,7 @@ A terminal UI for managing Jenkins instances, inspired by [k9s](https://github.c
 - **Path-aware command prompt** — argument-aware autocomplete suggesting values from the current view, qualified with the active folder path. Typing `:builds d` from `team-a/sub` completes to `:builds team-a/sub/deploy`.
 - **Live logs** — streaming console output with filtering, wrap toggle, autoscroll, mark, copy, save, full-screen, head/tail.
 - **Build actions** — trigger parameterised builds (params dialog with pre-filled defaults and Build button focused), rebuild last, stop running builds, view artifacts, describe config.
+- **Test reports** — JUnit-plugin browser (suites → cases → detail) with status colorization and full filter/sort; HTML Publisher launcher (pytest-html, allure, …) opens reports in the system browser.
 - **Job toggle** — single `Shift+E` to toggle Enable/Disable; `e` reserved for future edit.
 - **Sorting** — `Shift+N`/`Shift+S`/`Shift+R`/`Shift+A` per view (name/status/result/age depending on context).
 - **Bookmarks** — save the current view path and jump back later.
@@ -140,6 +141,8 @@ j9s --logFile /tmp/j9s.log --logLevel debug
 | `d` | Describe (job config) |
 | `a` | Artifacts of last successful build |
 | `l` | Logs of last build |
+| `t` | JUnit test report (suites → cases → detail) |
+| `h` | HTML Publisher reports (open in system browser) |
 | `v` | Switch to Views |
 | `Shift+E` | Toggle Enable/Disable |
 | `Ctrl+D` | Delete |
@@ -152,6 +155,7 @@ j9s --logFile /tmp/j9s.log --logLevel debug
 | `b` | Trigger build (ViewJobs) |
 | `d` | Describe |
 | `a` / `l` | Artifacts / Logs (ViewJobs) |
+| `t` / `h` | JUnit tests / HTML reports (ViewJobs) |
 | `v` | Switch to Views |
 
 ### Builds view
@@ -161,6 +165,8 @@ j9s --logFile /tmp/j9s.log --logLevel debug
 | `b` | Rebuild (re-trigger with the same parameters) |
 | `d` | Describe build |
 | `a` | Artifacts |
+| `t` | JUnit test report for this build |
+| `h` | HTML Publisher reports for this build |
 | `s` | Stop running build |
 | `Shift+N` / `Shift+R` / `Shift+A` | Sort by number / result / age |
 
@@ -209,6 +215,8 @@ Resource commands accept a path argument and push the matching nested view onto 
 | `:jobs team-a/sub` | Jobs view scoped to folder `team-a/sub` |
 | `:builds team-a/sub/deploy` | Builds for nested job `team-a/sub/deploy` |
 | `:logs team-a/sub/deploy/42` | Console output of build #42 |
+| `:tests team-a/sub/deploy/42` | JUnit test report (suites → cases → detail) for build #42 |
+| `:reports team-a/sub/deploy/42` | HTML Publisher reports attached to build #42 |
 | `:views team-a` | Jenkins views inside folder `team-a` |
 | `:ctx prod` | Switch active Jenkins context to `prod` |
 
