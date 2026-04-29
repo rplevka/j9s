@@ -127,6 +127,18 @@ func GenerateJenkinsURL(baseURL, path string) string {
 		return baseURL + "/view/" + viewName + "/"
 	}
 
+	// logs/<jobPath>/<buildNum> → <base>/job/.../<buildNum>/console
+	if strings.HasPrefix(path, "logs/") {
+		rest := strings.TrimPrefix(path, "logs/")
+		idx := strings.LastIndex(rest, "/")
+		if idx <= 0 || idx == len(rest)-1 {
+			return baseURL + "/"
+		}
+		jobPath := rest[:idx]
+		buildNum := rest[idx+1:]
+		return baseURL + "/job/" + strings.ReplaceAll(jobPath, "/", "/job/") + "/" + buildNum + "/console"
+	}
+
 	// Default
 	return baseURL + "/"
 }

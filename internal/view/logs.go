@@ -120,6 +120,12 @@ func (v *LogsView) GetParentID() string {
 }
 
 func (v *LogsView) bindKeys() {
+	// Pull in shared global keys (Copy URL, Help, Command, Filter, Esc,
+	// Quit). The view-specific Bulk() below overwrites any keys we want
+	// to handle differently here (Quit cancels the streaming context
+	// before exit; Filter / Esc have logs-specific behavior).
+	AddGlobalKeys(v.app, v.actions)
+
 	// Add all keys with proper visibility for menu hints
 	v.actions.Bulk(ui.KeyMap{
 		tcell.KeyCtrlC: ui.NewKeyAction("Quit", func(*tcell.EventKey) *tcell.EventKey {

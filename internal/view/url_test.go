@@ -128,6 +128,18 @@ func TestGenerateJenkinsURL(t *testing.T) {
 			path:    "jobs/MyJob",
 			want:    "https://jenkins.example.com/job/MyJob/",
 		},
+		{
+			name:    "logs with simple job",
+			baseURL: "https://jenkins.example.com",
+			path:    "logs/MyJob/123",
+			want:    "https://jenkins.example.com/job/MyJob/123/console",
+		},
+		{
+			name:    "logs with nested job",
+			baseURL: "https://jenkins.example.com",
+			path:    "logs/Folder/Sub/MyJob/42",
+			want:    "https://jenkins.example.com/job/Folder/job/Sub/job/MyJob/42/console",
+		},
 	}
 
 	for _, tt := range tests {

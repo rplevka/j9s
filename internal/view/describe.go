@@ -55,6 +55,42 @@ func (v *DescribeView) Hints() model.MenuHints {
 	return v.actions.Hints()
 }
 
+// GetJenkinsURL returns the Jenkins web UI URL for the resource being
+// described. Implements URLProvider so the global "u" hotkey can copy
+// the link from a job- or build-describe view.
+func (v *DescribeView) GetJenkinsURL() string {
+	ctx, _ := v.app.Config().ActiveContext()
+	if ctx == nil {
+		return ""
+	}
+	path := v.GetViewPath()
+	if path == "" {
+		return ""
+	}
+	return GenerateJenkinsURL(ctx.URL, path)
+}
+
+// GetViewPath returns the internal view path for bookmarking. For a job
+// describe this is "jobs/<jobPath>"; for a build describe it is
+// "builds/<jobPath>#<buildNum>" — matching the formats produced by
+// JobsView / BuildsView so URL generation is consistent.
+func (v *DescribeView) GetViewPath() string {
+	switch v.resourceType {
+	case "job":
+		if v.resourceName == "" {
+			return ""
+		}
+		return "jobs/" + v.resourceName
+	case "build":
+		// resourceName is "<jobPath>#<buildNum>" (set by buildsCmd).
+		if v.resourceName == "" || !strings.Contains(v.resourceName, "#") {
+			return ""
+		}
+		return "builds/" + v.resourceName
+	}
+	return ""
+}
+
 func (v *DescribeView) bindKeys() {
 	AddGlobalKeys(v.app, v.actions)
 
