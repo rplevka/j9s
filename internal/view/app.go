@@ -33,6 +33,28 @@ type App struct {
 	showLogo      bool
 	filterMode    bool // true when in filter mode (/) vs command mode (:)
 	infoView      *tview.TextView
+	header        *tview.Flex
+	logoShown     bool // last applied logo visibility (avoid redundant ResizeItem calls)
+}
+
+// Header layout widths (columns).
+const (
+	infoPanelWidth = 40
+	logoWidth      = 26
+	// minMenuWidth is the minimum width we want to leave for the menu /
+	// hotkey-hint table before we collapse the logo. Roughly enough room
+	// to render 2 columns of "<key> Action" hints comfortably.
+	minMenuWidth = 50
+)
+
+// shouldShowLogo decides whether the logo column fits given the available
+// header width and the user-configured preference. Pure helper so it can
+// be exercised without a tcell.Screen.
+func shouldShowLogo(width int, userWantsLogo bool) bool {
+	if !userWantsLogo {
+		return false
+	}
+	return width-infoPanelWidth-logoWidth >= minMenuWidth
 }
 
 // NewApp returns a new application.
@@ -42,13 +64,20 @@ func NewApp(cfg *config.Config) *App {
 		ctxName = cfg.J9s.CurrentContext
 	}
 
+	showHeader := true
+	showLogo := true
+	if cfg.J9s != nil {
+		showHeader = !cfg.J9s.Headless
+		showLogo = !cfg.J9s.Logoless
+	}
+
 	a := App{
 		App:           ui.NewApp(cfg, ctxName),
 		cmdHistory:    model.NewHistory(model.MaxHistory),
 		filterHistory: model.NewHistory(model.MaxHistory),
 		Content:       NewPageStack(),
-		showHeader:    true,
-		showLogo:      true,
+		showHeader:    showHeader,
+		showLogo:      showLogo,
 	}
 
 	return &a
@@ -153,11 +182,17 @@ func (a *App) Stop() {
 }
 
 func (a *App) layout(ctx context.Context) {
-	// Build header: Logo | Info | Menu
-	header := tview.NewFlex().SetDirection(tview.FlexColumn)
-	header.AddItem(a.buildInfoPanel(), 40, 1, false)
-	header.AddItem(a.Menu(), 0, 1, false)
-	header.AddItem(a.Logo(), 26, 1, false)
+	// Build header: Info | Menu | Logo
+	a.header = tview.NewFlex().SetDirection(tview.FlexColumn)
+	a.header.AddItem(a.buildInfoPanel(), infoPanelWidth, 1, false)
+	a.header.AddItem(a.Menu(), 0, 1, false)
+	a.header.AddItem(a.Logo(), logoWidth, 1, false)
+	a.logoShown = true
+	if !a.showLogo {
+		// User explicitly disabled the logo via --logoless / config.
+		a.header.ResizeItem(a.Logo(), 0, 0)
+		a.logoShown = false
+	}
 
 	// Main layout (top to bottom):
 	// - Header (or status indicator if headless)
@@ -166,7 +201,7 @@ func (a *App) layout(ctx context.Context) {
 	// - Flash
 	main := tview.NewFlex().SetDirection(tview.FlexRow)
 	if a.showHeader {
-		main.AddItem(header, 7, 1, false)
+		main.AddItem(a.header, 7, 1, false)
 	} else {
 		main.AddItem(a.buildInfoPanel(), 1, 1, false)
 	}
@@ -176,6 +211,31 @@ func (a *App) layout(ctx context.Context) {
 
 	a.Main.AddPage("main", main, true, true)
 	a.SetRoot(a.Main, true)
+
+	// Hide the logo on narrow terminals so the menu / hotkey hints are
+	// never clipped. Re-evaluated on every redraw, so the logo pops back
+	// in when the user widens the window.
+	a.Application.SetBeforeDrawFunc(a.adjustHeaderForWidth)
+}
+
+// adjustHeaderForWidth toggles the logo column based on the current
+// terminal width. Returns false so tview proceeds with the normal draw.
+func (a *App) adjustHeaderForWidth(screen tcell.Screen) bool {
+	if a.header == nil || !a.showHeader {
+		return false
+	}
+	width, _ := screen.Size()
+	want := shouldShowLogo(width, a.showLogo)
+	if want == a.logoShown {
+		return false
+	}
+	if want {
+		a.header.ResizeItem(a.Logo(), logoWidth, 1)
+	} else {
+		a.header.ResizeItem(a.Logo(), 0, 0)
+	}
+	a.logoShown = want
+	return false
 }
 
 func (a *App) buildInfoPanel() tview.Primitive {
