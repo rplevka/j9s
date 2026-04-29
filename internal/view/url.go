@@ -139,6 +139,64 @@ func GenerateJenkinsURL(baseURL, path string) string {
 		return baseURL + "/job/" + strings.ReplaceAll(jobPath, "/", "/job/") + "/" + buildNum + "/console"
 	}
 
+	// tests/<jobPath>/<buildNum>[/<package>/<class>[/<test>]]
+	//     → <base>/job/.../<buildNum>/testReport[/<package>/<class>[/<test>]]/
+	// We split at the first all-numeric segment, which by Jenkins
+	// convention is the build number (folder/job names are never bare
+	// numbers in practice and the JUnit testReport sub-path is
+	// package/class/test, none of which are pure digits).
+	if strings.HasPrefix(path, "tests/") {
+		jobPath, buildNum, extra, ok := splitBuildPath(strings.TrimPrefix(path, "tests/"))
+		if !ok {
+			return baseURL + "/"
+		}
+		tail := "/testReport"
+		if extra != "" {
+			tail += "/" + extra
+		}
+		tail += "/"
+		return baseURL + "/job/" + strings.ReplaceAll(jobPath, "/", "/job/") + "/" + buildNum + tail
+	}
+
+	// reports/<jobPath>/<buildNum>[/<urlName>]
+	//     → <base>/job/.../<buildNum>[/<urlName>]/
+	if strings.HasPrefix(path, "reports/") {
+		jobPath, buildNum, extra, ok := splitBuildPath(strings.TrimPrefix(path, "reports/"))
+		if !ok {
+			return baseURL + "/"
+		}
+		tail := "/"
+		if extra != "" {
+			tail = "/" + extra + "/"
+		}
+		return baseURL + "/job/" + strings.ReplaceAll(jobPath, "/", "/job/") + "/" + buildNum + tail
+	}
+
 	// Default
 	return baseURL + "/"
+}
+
+// splitBuildPath splits a path of the form "<jobPath>/<buildNum>[/<extra>]"
+// at the FIRST all-numeric segment. Returns the job path, build number
+// segment and any trailing path joined back together (without surrounding
+// slashes). Returns ok=false if no build number is present or it is the
+// very first segment.
+func splitBuildPath(rest string) (jobPath, buildNum, extra string, ok bool) {
+	segs := strings.Split(rest, "/")
+	buildIdx := -1
+	for i, s := range segs {
+		if s != "" && isNumeric(s) {
+			buildIdx = i
+			break
+		}
+	}
+	if buildIdx <= 0 {
+		return "", "", "", false
+	}
+	jobPath = strings.Join(segs[:buildIdx], "/")
+	buildNum = segs[buildIdx]
+	if buildIdx+1 < len(segs) {
+		extra = strings.Join(segs[buildIdx+1:], "/")
+	}
+	return jobPath, buildNum, extra, true
 }

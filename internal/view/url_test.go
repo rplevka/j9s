@@ -140,6 +140,36 @@ func TestGenerateJenkinsURL(t *testing.T) {
 			path:    "logs/Folder/Sub/MyJob/42",
 			want:    "https://jenkins.example.com/job/Folder/job/Sub/job/MyJob/42/console",
 		},
+		{
+			name:    "tests overview, nested job",
+			baseURL: "https://jenkins.example.com",
+			path:    "tests/Folder/MyJob/3",
+			want:    "https://jenkins.example.com/job/Folder/job/MyJob/3/testReport/",
+		},
+		{
+			name:    "tests cases page (package/class)",
+			baseURL: "https://jenkins.example.com",
+			path:    "tests/Folder/MyJob/3/com.example/MyTest",
+			want:    "https://jenkins.example.com/job/Folder/job/MyJob/3/testReport/com.example/MyTest/",
+		},
+		{
+			name:    "tests case detail (package/class/test)",
+			baseURL: "https://jenkins.example.com",
+			path:    "tests/Folder/MyJob/3/com.example/MyTest/test_does_a_thing",
+			want:    "https://jenkins.example.com/job/Folder/job/MyJob/3/testReport/com.example/MyTest/test_does_a_thing/",
+		},
+		{
+			name:    "reports overview (build root)",
+			baseURL: "https://jenkins.example.com",
+			path:    "reports/Folder/MyJob/3",
+			want:    "https://jenkins.example.com/job/Folder/job/MyJob/3/",
+		},
+		{
+			name:    "reports specific HTML target",
+			baseURL: "https://jenkins.example.com",
+			path:    "reports/Folder/MyJob/3/pytest_html",
+			want:    "https://jenkins.example.com/job/Folder/job/MyJob/3/pytest_html/",
+		},
 	}
 
 	for _, tt := range tests {
