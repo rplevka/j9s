@@ -209,9 +209,8 @@ func (v *DescribeView) formatBuildDetails(build interface{}) string {
 
 	var sb strings.Builder
 
-	// Header
-	sb.WriteString(fmt.Sprintf("[aqua::b]Build #%d[-::-]\n", b.Number))
-	sb.WriteString("[gray::]" + strings.Repeat("-", 40) + "[-::]\n\n")
+	// (No "Build #N" header — the framed title at the top of the view
+	// already shows " Describe(build):<jobPath>#<num> ".)
 
 	// Basic Info
 	sb.WriteString("[yellow::b]Basic Information[white::-]\n")
