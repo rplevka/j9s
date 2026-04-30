@@ -625,6 +625,20 @@ func (c *Command) createViewFromPath(path string) ResourceViewer {
 			c.app.Flash().Warn("Invalid reports path; expected reports/<jobPath>/<buildNum>")
 			return nil
 		}
+	case "pipeline":
+		// pipeline/<jobPath>/<buildNum> — same shape as logs/.
+		if subPath != "" {
+			if idx := strings.LastIndex(subPath, "/"); idx >= 0 {
+				jobName := subPath[:idx]
+				if buildNum, err := strconv.Atoi(subPath[idx+1:]); err == nil {
+					view = NewPipelineGraphView(c.app, jobName, buildNum)
+				}
+			}
+		}
+		if view == nil {
+			c.app.Flash().Warn("Invalid pipeline path; expected pipeline/<jobPath>/<buildNum>")
+			return nil
+		}
 	case "views":
 		if subPath != "" {
 			view = NewViewsViewWithPath(c.app, subPath)
@@ -704,6 +718,8 @@ func (c *Command) matchResourcePath(cmd string) (string, string, bool) {
 		return "tests", path, true
 	case "reports", "report":
 		return "reports", path, true
+	case "pipeline", "pipe", "pl", "bo":
+		return "pipeline", path, true
 	}
 	return "", "", false
 }

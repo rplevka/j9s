@@ -139,6 +139,7 @@ func (v *JobsView) bindKeys() {
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyT:        ui.NewKeyAction("Tests", v.testsCmd, true),
 		ui.KeyH:        ui.NewKeyAction("Reports", v.reportsCmd, true),
+		ui.KeyP:        ui.NewKeyAction("Pipeline", v.pipelineCmd, true),
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Build", v.triggerCmd, true),
 		ui.KeyShiftE:   ui.NewKeyAction("Toggle", v.toggleEnabledCmd, true),
@@ -409,6 +410,15 @@ func (v *JobsView) reportsCmd(*tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	v.app.Content.Push(NewHTMLReportsView(v.app, full, num))
+	return nil
+}
+
+func (v *JobsView) pipelineCmd(*tcell.EventKey) *tcell.EventKey {
+	full, num, ok := v.selectedJobLastBuild()
+	if !ok {
+		return nil
+	}
+	v.app.Content.Push(NewPipelineGraphView(v.app, full, num))
 	return nil
 }
 

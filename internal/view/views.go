@@ -223,6 +223,7 @@ func (v *ViewJobsView) bindKeys() {
 		ui.KeyL:        ui.NewKeyAction("Logs", v.logsCmd, true),
 		ui.KeyT:        ui.NewKeyAction("Tests", v.testsCmd, true),
 		ui.KeyH:        ui.NewKeyAction("Reports", v.reportsCmd, true),
+		ui.KeyP:        ui.NewKeyAction("Pipeline", v.pipelineCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Build", v.triggerCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyV:        ui.NewKeyAction("Views", v.viewsCmd, true),
@@ -404,6 +405,16 @@ func (v *ViewJobsView) reportsCmd(*tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	v.app.Content.Push(NewHTMLReportsView(v.app, v.getFullJobName(job.Name), job.LastBuild.Number))
+	return nil
+}
+
+func (v *ViewJobsView) pipelineCmd(*tcell.EventKey) *tcell.EventKey {
+	job := v.getSelectedJob()
+	if job == nil || job.LastBuild == nil {
+		v.app.Flash().Warn("No builds available for this job")
+		return nil
+	}
+	v.app.Content.Push(NewPipelineGraphView(v.app, v.getFullJobName(job.Name), job.LastBuild.Number))
 	return nil
 }
 

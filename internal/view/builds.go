@@ -109,6 +109,7 @@ func (v *BuildsView) bindKeys() {
 		ui.KeyA:        ui.NewKeyAction("Artifacts", v.artifactsCmd, true),
 		ui.KeyT:        ui.NewKeyAction("Tests", v.testsCmd, true),
 		ui.KeyH:        ui.NewKeyAction("Reports", v.reportsCmd, true),
+		ui.KeyP:        ui.NewKeyAction("Pipeline", v.pipelineCmd, true),
 		ui.KeyS:        ui.NewKeyAction("Stop", v.stopCmd, true),
 		ui.KeyR:        ui.NewKeyAction("Refresh", v.refreshCmd, true),
 		ui.KeyB:        ui.NewKeyAction("Rebuild", v.rebuildCmd, true),
@@ -231,6 +232,15 @@ func (v *BuildsView) testsCmd(*tcell.EventKey) *tcell.EventKey {
 		return nil
 	}
 	v.app.Content.Push(NewTestSuitesView(v.app, v.jobName, buildNum))
+	return nil
+}
+
+func (v *BuildsView) pipelineCmd(*tcell.EventKey) *tcell.EventKey {
+	buildNum := v.getSelectedBuildNumber()
+	if buildNum <= 0 {
+		return nil
+	}
+	v.app.Content.Push(NewPipelineGraphView(v.app, v.jobName, buildNum))
 	return nil
 }
 

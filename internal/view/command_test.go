@@ -248,6 +248,26 @@ func TestCommand_RunNavigatesPathBased(t *testing.T) {
 		assert.Equal(t, "team-a/sub/deploy", rv.jobName)
 		assert.Equal(t, 3, rv.buildNum)
 	})
+
+	t.Run("pipeline <jobPath>/<buildNum>", func(t *testing.T) {
+		c, app := newTestCommand(t, nil)
+		c.Run("pipeline team-a/sub/deploy/3")
+		top := app.Content.Top()
+		pv, ok := top.(*PipelineGraphView)
+		require.True(t, ok, "top view should be *PipelineGraphView, got %T", top)
+		assert.Equal(t, "team-a/sub/deploy", pv.jobName)
+		assert.Equal(t, 3, pv.buildNum)
+	})
+
+	t.Run("pipeline alias `bo`", func(t *testing.T) {
+		c, app := newTestCommand(t, nil)
+		c.Run("bo deploy/1")
+		top := app.Content.Top()
+		pv, ok := top.(*PipelineGraphView)
+		require.True(t, ok, "top view should be *PipelineGraphView, got %T", top)
+		assert.Equal(t, "deploy", pv.jobName)
+		assert.Equal(t, 1, pv.buildNum)
+	})
 }
 
 func TestCommand_MatchResourcePath(t *testing.T) {
@@ -268,6 +288,10 @@ func TestCommand_MatchResourcePath(t *testing.T) {
 		{"test deploy/1", "tests", "deploy/1", true},
 		{"reports team-a/deploy/3", "reports", "team-a/deploy/3", true},
 		{"report deploy/1", "reports", "deploy/1", true},
+		{"pipeline team-a/deploy/3", "pipeline", "team-a/deploy/3", true},
+		{"pipe deploy/1", "pipeline", "deploy/1", true},
+		{"pl deploy/1", "pipeline", "deploy/1", true},
+		{"bo deploy/1", "pipeline", "deploy/1", true},
 		{"views my-view", "views", "my-view", true},
 		{"jobs", "", "", false},
 		{"jobs   ", "", "", false},
