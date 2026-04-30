@@ -172,6 +172,28 @@ func GenerateJenkinsURL(baseURL, path string) string {
 		return baseURL + "/job/" + strings.ReplaceAll(jobPath, "/", "/job/") + "/" + buildNum + tail
 	}
 
+	// pipeline/<jobPath>/<buildNum>[/<nodeID>[/<stepID>]]
+	//     → <base>/blue/organizations/jenkins/<jobPathWithSlashes>/detail/<lastSegment>/<buildNum>/pipeline[/<nodeID>[/<stepID>]]
+	// This is the Blue Ocean *human-facing* URL form. It stays separate
+	// from /blue/rest/... which the API client uses internally.
+	if strings.HasPrefix(path, "pipeline/") {
+		jobPath, buildNum, extra, ok := splitBuildPath(strings.TrimPrefix(path, "pipeline/"))
+		if !ok {
+			return baseURL + "/"
+		}
+		// Blue Ocean's UI URL is /blue/organizations/jenkins/<job-path-with-slashes>/detail/<lastSegment>/<num>/pipeline.
+		// For nested pipelines the <job-path-with-slashes> uses literal "/"
+		// (no /pipelines/ trampolines) — that matches what Jenkins emits.
+		segs := strings.Split(jobPath, "/")
+		last := segs[len(segs)-1]
+		tail := ""
+		if extra != "" {
+			tail = "/" + extra
+		}
+		return fmt.Sprintf("%s/blue/organizations/jenkins/%s/detail/%s/%s/pipeline%s",
+			baseURL, strings.Join(segs, "%2F"), url.PathEscape(last), buildNum, tail)
+	}
+
 	// Default
 	return baseURL + "/"
 }

@@ -170,6 +170,24 @@ func TestGenerateJenkinsURL(t *testing.T) {
 			path:    "reports/Folder/MyJob/3/pytest_html",
 			want:    "https://jenkins.example.com/job/Folder/job/MyJob/3/pytest_html/",
 		},
+		{
+			name:    "pipeline graph, top-level job",
+			baseURL: "https://jenkins.example.com",
+			path:    "pipeline/MyJob/7",
+			want:    "https://jenkins.example.com/blue/organizations/jenkins/MyJob/detail/MyJob/7/pipeline",
+		},
+		{
+			name:    "pipeline graph, nested job (slashes encoded as %2F)",
+			baseURL: "https://jenkins.example.com",
+			path:    "pipeline/Folder/Sub/MyJob/3",
+			want:    "https://jenkins.example.com/blue/organizations/jenkins/Folder%2FSub%2FMyJob/detail/MyJob/3/pipeline",
+		},
+		{
+			name:    "pipeline graph, drilled into a node",
+			baseURL: "https://jenkins.example.com",
+			path:    "pipeline/Folder/MyJob/3/9",
+			want:    "https://jenkins.example.com/blue/organizations/jenkins/Folder%2FMyJob/detail/MyJob/3/pipeline/9",
+		},
 	}
 
 	for _, tt := range tests {
