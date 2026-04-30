@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -426,6 +427,56 @@ type HTMLReport struct {
 	URLName string `json:"urlName"`
 	// ReportName is the human-friendly name shown by Jenkins.
 	ReportName string `json:"reportName"`
+}
+
+// ErrBlueOceanUnavailable is returned by GetPipelineNodes/Steps/Log when
+// the Jenkins instance does not have the blueocean-rest plugin installed
+// (i.e. /blue/rest/... 404s). Views surface this as a tailored hint
+// instead of the generic "request failed with status 404" string.
+var ErrBlueOceanUnavailable = errors.New("blueocean-rest plugin is not available on this Jenkins instance")
+
+// BlueNode is one vertex in a pipeline run's DAG, as exposed by the
+// Blue Ocean REST API. Only fields actually rendered or navigated by
+// j9s are decoded; the upstream resource carries many more.
+type BlueNode struct {
+	ID               string     `json:"id"`
+	DisplayName      string     `json:"displayName"`
+	Result           string     `json:"result"`
+	State            string     `json:"state"`
+	StartTime        string     `json:"startTime"`
+	DurationInMillis int64      `json:"durationInMillis"`
+	Type             string     `json:"type"`
+	FirstParent      string     `json:"firstParent"`
+	Edges            []BlueEdge `json:"edges"`
+}
+
+// BlueEdge is one outbound DAG edge from a BlueNode. The Type field
+// (NORMAL, PARALLEL) is informational only; topology is derived from
+// the (parent.id, edge.id) tuple.
+type BlueEdge struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+// BlueStep is one step inside a BlueNode (the runnable atoms shown
+// when the user drills into a stage in the Blue Ocean UI).
+type BlueStep struct {
+	ID               string `json:"id"`
+	DisplayName      string `json:"displayName"`
+	Result           string `json:"result"`
+	State            string `json:"state"`
+	StartTime        string `json:"startTime"`
+	DurationInMillis int64  `json:"durationInMillis"`
+}
+
+// BlueLog is the parsed payload of a node- or step-level log fetch.
+// NextStart and MoreData are taken from the X-Text-Size and X-More-Data
+// response headers; callers tail by re-issuing the request with
+// start=NextStart while MoreData is true.
+type BlueLog struct {
+	Text      string
+	NextStart int64
+	MoreData  bool
 }
 
 // View represents a Jenkins view.
@@ -1126,4 +1177,130 @@ func (c *Client) getRaw(ctx context.Context, path string) ([]byte, error) {
 // GetArtifactURL returns the full URL for downloading an artifact.
 func (c *Client) GetArtifactURL(jobName string, buildNumber int, relativePath string) string {
 	return fmt.Sprintf("%s%s/%d/artifact/%s", c.baseURL, jobPath(jobName), buildNumber, relativePath)
+}
+
+// bluePipelinePath converts a Jenkins job name (potentially nested,
+// e.g. "team-a/sub/deploy") into the Blue Ocean REST URL prefix
+// "/blue/rest/organizations/jenkins/pipelines/team-a/pipelines/sub/pipelines/deploy".
+// The "jenkins" organization slug is hard-coded — this matches every
+// non-CloudBees Jenkins instance and is what the upstream Blue Ocean
+// UI uses unconditionally.
+func bluePipelinePath(jobName string) string {
+	parts := strings.Split(jobName, "/")
+	var b strings.Builder
+	b.WriteString("/blue/rest/organizations/jenkins")
+	for _, p := range parts {
+		b.WriteString("/pipelines/")
+		b.WriteString(url.PathEscape(p))
+	}
+	return b.String()
+}
+
+// GetPipelineNodes returns the DAG nodes of a Pipeline run via the
+// Blue Ocean REST API. A 404 is interpreted as "blueocean-rest plugin
+// not installed" and surfaced as ErrBlueOceanUnavailable so the view
+// layer can render a tailored hint instead of a raw status line.
+func (c *Client) GetPipelineNodes(ctx context.Context, jobName string, buildNumber int) ([]BlueNode, error) {
+	path := fmt.Sprintf("%s/runs/%d/nodes/", bluePipelinePath(jobName), buildNumber)
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrBlueOceanUnavailable
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var nodes []BlueNode
+	if err := json.Unmarshal(data, &nodes); err != nil {
+		return nil, fmt.Errorf("failed to parse pipeline nodes: %w", err)
+	}
+	return nodes, nil
+}
+
+// GetPipelineNodeSteps returns the steps inside a single pipeline node.
+func (c *Client) GetPipelineNodeSteps(ctx context.Context, jobName string, buildNumber int, nodeID string) ([]BlueStep, error) {
+	path := fmt.Sprintf("%s/runs/%d/nodes/%s/steps/", bluePipelinePath(jobName), buildNumber, url.PathEscape(nodeID))
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrBlueOceanUnavailable
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var steps []BlueStep
+	if err := json.Unmarshal(data, &steps); err != nil {
+		return nil, fmt.Errorf("failed to parse pipeline steps: %w", err)
+	}
+	return steps, nil
+}
+
+// fetchBlueLog issues a GET to a Blue Ocean log endpoint and parses the
+// X-Text-Size + X-More-Data headers. Shared by node- and step-level log
+// fetches because the response shape is identical.
+func (c *Client) fetchBlueLog(ctx context.Context, path string, start int64) (BlueLog, error) {
+	if start > 0 {
+		path = fmt.Sprintf("%s?start=%d", path, start)
+	}
+	resp, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return BlueLog{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return BlueLog{}, ErrBlueOceanUnavailable
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return BlueLog{}, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return BlueLog{}, err
+	}
+	log := BlueLog{Text: string(body), NextStart: start}
+	if size := resp.Header.Get("X-Text-Size"); size != "" {
+		// The header is the absolute byte offset of the next read.
+		var n int64
+		_, _ = fmt.Sscanf(size, "%d", &n)
+		log.NextStart = n
+	}
+	if more := resp.Header.Get("X-More-Data"); strings.EqualFold(more, "true") {
+		log.MoreData = true
+	}
+	return log, nil
+}
+
+// GetPipelineNodeLog fetches the aggregated log of a single pipeline
+// node (i.e. all steps inside the stage). start is the byte offset to
+// resume from; pass 0 to fetch from the beginning.
+func (c *Client) GetPipelineNodeLog(ctx context.Context, jobName string, buildNumber int, nodeID string, start int64) (BlueLog, error) {
+	path := fmt.Sprintf("%s/runs/%d/nodes/%s/log/", bluePipelinePath(jobName), buildNumber, url.PathEscape(nodeID))
+	return c.fetchBlueLog(ctx, path, start)
+}
+
+// GetPipelineStepLog fetches the log of a single pipeline step.
+func (c *Client) GetPipelineStepLog(ctx context.Context, jobName string, buildNumber int, nodeID, stepID string, start int64) (BlueLog, error) {
+	path := fmt.Sprintf("%s/runs/%d/nodes/%s/steps/%s/log/", bluePipelinePath(jobName), buildNumber, url.PathEscape(nodeID), url.PathEscape(stepID))
+	return c.fetchBlueLog(ctx, path, start)
 }

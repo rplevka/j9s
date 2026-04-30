@@ -73,6 +73,15 @@ type buildState struct {
 	testReport *client.TestReport
 	// htmlReports are surfaced as actions[] entries on the build JSON.
 	htmlReports []client.HTMLReport
+	// pipelineNodes is the canned response for the Blue Ocean
+	// /blue/rest/.../runs/<num>/nodes/ endpoint.
+	pipelineNodes []client.BlueNode
+	// pipelineSteps maps nodeID -> canned step list for /nodes/<id>/steps/.
+	pipelineSteps map[string][]client.BlueStep
+	// pipelineNodeLogs maps nodeID -> canned text returned by /nodes/<id>/log/.
+	pipelineNodeLogs map[string]string
+	// pipelineStepLogs maps "nodeID/stepID" -> canned text for /steps/<id>/log/.
+	pipelineStepLogs map[string]string
 }
 
 // JenkinsServer is a fluent fake Jenkins instance backed by httptest.Server.
@@ -213,6 +222,63 @@ func (j *JenkinsServer) WithHTMLReport(jobFullName string, num int, urlName, rep
 	return j
 }
 
+// WithPipelineNodes attaches the canned Blue Ocean DAG node list to a
+// previously registered build.
+func (j *JenkinsServer) WithPipelineNodes(jobFullName string, num int, nodes []client.BlueNode) *JenkinsServer {
+	st := j.requireBuild("WithPipelineNodes", jobFullName, num)
+	st.pipelineNodes = nodes
+	return j
+}
+
+// WithPipelineNodeSteps attaches a canned per-node step list.
+func (j *JenkinsServer) WithPipelineNodeSteps(jobFullName string, num int, nodeID string, steps []client.BlueStep) *JenkinsServer {
+	st := j.requireBuild("WithPipelineNodeSteps", jobFullName, num)
+	if st.pipelineSteps == nil {
+		st.pipelineSteps = make(map[string][]client.BlueStep)
+	}
+	st.pipelineSteps[nodeID] = steps
+	return j
+}
+
+// WithPipelineNodeLog attaches a canned log body for /nodes/<id>/log/.
+// X-Text-Size is set from len(text); X-More-Data is always false.
+func (j *JenkinsServer) WithPipelineNodeLog(jobFullName string, num int, nodeID, text string) *JenkinsServer {
+	st := j.requireBuild("WithPipelineNodeLog", jobFullName, num)
+	if st.pipelineNodeLogs == nil {
+		st.pipelineNodeLogs = make(map[string]string)
+	}
+	st.pipelineNodeLogs[nodeID] = text
+	return j
+}
+
+// WithPipelineStepLog attaches a canned log body for
+// /nodes/<nodeID>/steps/<stepID>/log/.
+func (j *JenkinsServer) WithPipelineStepLog(jobFullName string, num int, nodeID, stepID, text string) *JenkinsServer {
+	st := j.requireBuild("WithPipelineStepLog", jobFullName, num)
+	if st.pipelineStepLogs == nil {
+		st.pipelineStepLogs = make(map[string]string)
+	}
+	st.pipelineStepLogs[nodeID+"/"+stepID] = text
+	return j
+}
+
+// requireBuild returns the buildState pointer or fatals the test.
+// Used by all fluent attach-to-build helpers (test/HTML report, blue
+// ocean) to share the same diagnostic message shape.
+func (j *JenkinsServer) requireBuild(method, jobFullName string, num int) *buildState {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	bs := j.builds[jobFullName]
+	if bs == nil {
+		j.t.Fatalf("%s: build %s#%d not registered", method, jobFullName, num)
+	}
+	st := bs[num]
+	if st == nil {
+		j.t.Fatalf("%s: build %s#%d not registered", method, jobFullName, num)
+	}
+	return st
+}
+
 // WithView registers a Jenkins view at the given folder ("" = root).
 func (j *JenkinsServer) WithView(folder, name string) *JenkinsServer {
 	j.mu.Lock()
@@ -317,8 +383,134 @@ func (j *JenkinsServer) handle(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/job/"):
 		j.handleJobScoped(w, r)
 		return
+	case strings.HasPrefix(r.URL.Path, "/blue/rest/organizations/jenkins/pipelines/"):
+		j.handleBlueOcean(w, r)
+		return
 	}
 	http.NotFound(w, r)
+}
+
+// handleBlueOcean dispatches /blue/rest/organizations/jenkins/pipelines/...
+// requests. Decodes the nested "pipelines/<seg>" path back into a job
+// fullName, then dispatches by suffix:
+//
+//	runs/<num>/nodes/                              -> pipeline node list
+//	runs/<num>/nodes/<nodeID>/steps/               -> step list
+//	runs/<num>/nodes/<nodeID>/log/                 -> aggregated node log
+//	runs/<num>/nodes/<nodeID>/steps/<stepID>/log/  -> per-step log
+func (j *JenkinsServer) handleBlueOcean(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/blue/rest/organizations/jenkins/pipelines/")
+	full, suffix := decodeBluePipelinePath(rest)
+
+	if !strings.HasPrefix(suffix, "runs/") {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(strings.TrimPrefix(suffix, "runs/"), "/", 2)
+	num, err := strconv.Atoi(parts[0])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if len(parts) == 1 {
+		http.NotFound(w, r)
+		return
+	}
+	tail := strings.TrimSuffix(parts[1], "/")
+
+	j.mu.Lock()
+	st := j.lookupBuild(full, num)
+	j.mu.Unlock()
+	if st == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	switch {
+	case tail == "nodes":
+		j.mu.Lock()
+		nodes := st.pipelineNodes
+		j.mu.Unlock()
+		if nodes == nil {
+			nodes = []client.BlueNode{}
+		}
+		writeJSON(w, nodes)
+	case strings.HasPrefix(tail, "nodes/"):
+		j.handleBlueNodeSubresource(w, st, strings.TrimPrefix(tail, "nodes/"))
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// handleBlueNodeSubresource dispatches the per-node Blue Ocean URLs.
+// rest is the path AFTER "nodes/" — e.g. "13/steps", "13/log",
+// "13/steps/21/log".
+func (j *JenkinsServer) handleBlueNodeSubresource(w http.ResponseWriter, st *buildState, rest string) {
+	parts := strings.Split(rest, "/")
+	if len(parts) < 2 {
+		http.NotFound(w, nil)
+		return
+	}
+	nodeID := parts[0]
+
+	switch {
+	case len(parts) == 2 && parts[1] == "steps":
+		j.mu.Lock()
+		steps := st.pipelineSteps[nodeID]
+		j.mu.Unlock()
+		if steps == nil {
+			steps = []client.BlueStep{}
+		}
+		writeJSON(w, steps)
+	case len(parts) == 2 && parts[1] == "log":
+		j.mu.Lock()
+		text := st.pipelineNodeLogs[nodeID]
+		j.mu.Unlock()
+		writeBlueLog(w, text)
+	case len(parts) == 4 && parts[1] == "steps" && parts[3] == "log":
+		stepID := parts[2]
+		j.mu.Lock()
+		text := st.pipelineStepLogs[nodeID+"/"+stepID]
+		j.mu.Unlock()
+		writeBlueLog(w, text)
+	default:
+		http.NotFound(w, nil)
+	}
+}
+
+// decodeBluePipelinePath converts "team-a/pipelines/sub/pipelines/deploy/runs/3/nodes/"
+// into fullName="team-a/sub/deploy" and suffix="runs/3/nodes". The Blue
+// Ocean URL scheme alternates "<segment>/pipelines/<segment>" up to the
+// final pipeline name, then optional run/operation suffix.
+func decodeBluePipelinePath(rest string) (fullName, suffix string) {
+	parts := strings.Split(rest, "/")
+	var nameParts []string
+	i := 0
+	for i < len(parts) {
+		nameParts = append(nameParts, parts[i])
+		i++
+		if i < len(parts) && parts[i] == "pipelines" {
+			i++
+			continue
+		}
+		break
+	}
+	fullName = strings.Join(nameParts, "/")
+	if i < len(parts) {
+		suffix = strings.Join(parts[i:], "/")
+	}
+	return
+}
+
+// writeBlueLog mirrors the Blue Ocean log endpoint: text body plus
+// X-Text-Size header (= len) and X-More-Data: false (the mock never
+// streams). Returns 200 with empty body when text is empty so callers
+// can distinguish "no log yet" from "node missing".
+func writeBlueLog(w http.ResponseWriter, text string) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("X-Text-Size", strconv.Itoa(len(text)))
+	w.Header().Set("X-More-Data", "false")
+	_, _ = w.Write([]byte(text))
 }
 
 // handleJobScoped dispatches /job/... requests, decoding the embedded path

@@ -231,3 +231,87 @@ func TestClient_GetHTMLReports_NoReports(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, reports)
 }
+
+// TestClient_GetPipelineNodes_Nested asserts the Blue Ocean nodes list
+// roundtrips through bluePipelinePath nesting (folder/sub/job →
+// /pipelines/folder/pipelines/sub/pipelines/job).
+func TestClient_GetPipelineNodes_Nested(t *testing.T) {
+	srv := mock.NewJenkinsServer(t).
+		WithFolder("team-a").
+		WithJobInFolder("team-a", "deploy", mock.JobOpts{LastBuildNumber: 3}).
+		WithBuild("team-a/deploy", 3, mock.BuildOpts{Result: "SUCCESS"}).
+		WithPipelineNodes("team-a/deploy", 3, []client.BlueNode{
+			{ID: "3", DisplayName: "build", Result: "SUCCESS", State: "FINISHED",
+				Edges: []client.BlueEdge{{ID: "9"}}},
+			{ID: "9", DisplayName: "test", Result: "SUCCESS", State: "FINISHED"},
+		})
+
+	c := mock.NewClient(t, srv)
+	nodes, err := c.GetPipelineNodes(context.Background(), "team-a/deploy", 3)
+	require.NoError(t, err)
+	require.Len(t, nodes, 2)
+	assert.Equal(t, "build", nodes[0].DisplayName)
+	assert.Equal(t, "9", nodes[0].Edges[0].ID)
+}
+
+// TestClient_GetPipelineNodes_Missing asserts the ErrBlueOceanUnavailable
+// sentinel surfaces when the mock build is unknown (i.e. the route
+// 404s, the same shape the real Jenkins returns when the plugin is
+// missing).
+func TestClient_GetPipelineNodes_Missing(t *testing.T) {
+	srv := mock.NewJenkinsServer(t).
+		WithJob("hello", mock.JobOpts{LastBuildNumber: 1})
+
+	c := mock.NewClient(t, srv)
+	_, err := c.GetPipelineNodes(context.Background(), "hello", 99)
+	require.ErrorIs(t, err, client.ErrBlueOceanUnavailable)
+}
+
+// TestClient_GetPipelineNodeSteps decodes a canned step list, ensuring
+// status fields and IDs make it through.
+func TestClient_GetPipelineNodeSteps(t *testing.T) {
+	srv := mock.NewJenkinsServer(t).
+		WithJob("hello", mock.JobOpts{LastBuildNumber: 1}).
+		WithBuild("hello", 1, mock.BuildOpts{Result: "SUCCESS"}).
+		WithPipelineNodes("hello", 1, []client.BlueNode{{ID: "9", DisplayName: "test"}}).
+		WithPipelineNodeSteps("hello", 1, "9", []client.BlueStep{
+			{ID: "21", DisplayName: "Print Message", Result: "SUCCESS", State: "FINISHED"},
+			{ID: "22", DisplayName: "Shell Script", Result: "FAILURE", State: "FINISHED"},
+		})
+
+	c := mock.NewClient(t, srv)
+	steps, err := c.GetPipelineNodeSteps(context.Background(), "hello", 1, "9")
+	require.NoError(t, err)
+	require.Len(t, steps, 2)
+	assert.Equal(t, "FAILURE", steps[1].Result)
+}
+
+// TestClient_GetPipelineNodeLog parses X-Text-Size/X-More-Data headers.
+func TestClient_GetPipelineNodeLog(t *testing.T) {
+	body := "running step\nfinished\n"
+	srv := mock.NewJenkinsServer(t).
+		WithJob("hello", mock.JobOpts{LastBuildNumber: 1}).
+		WithBuild("hello", 1, mock.BuildOpts{Result: "SUCCESS"}).
+		WithPipelineNodeLog("hello", 1, "9", body)
+
+	c := mock.NewClient(t, srv)
+	log, err := c.GetPipelineNodeLog(context.Background(), "hello", 1, "9", 0)
+	require.NoError(t, err)
+	assert.Equal(t, body, log.Text)
+	assert.Equal(t, int64(len(body)), log.NextStart)
+	assert.False(t, log.MoreData)
+}
+
+// TestClient_GetPipelineStepLog covers the per-step log shape, used by
+// PipelineNodeLogsView when navigating from a step row.
+func TestClient_GetPipelineStepLog(t *testing.T) {
+	srv := mock.NewJenkinsServer(t).
+		WithJob("hello", mock.JobOpts{LastBuildNumber: 1}).
+		WithBuild("hello", 1, mock.BuildOpts{Result: "SUCCESS"}).
+		WithPipelineStepLog("hello", 1, "9", "21", "Hello, World!\n")
+
+	c := mock.NewClient(t, srv)
+	log, err := c.GetPipelineStepLog(context.Background(), "hello", 1, "9", "21", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "Hello, World!\n", log.Text)
+}
