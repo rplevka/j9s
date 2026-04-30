@@ -13,6 +13,7 @@ A terminal UI for managing Jenkins instances, inspired by [k9s](https://github.c
 - **Live logs** — streaming console output with filtering, wrap toggle, autoscroll, mark, copy, save, full-screen, head/tail.
 - **Build actions** — trigger parameterised builds (params dialog with pre-filled defaults and Build button focused), rebuild last, stop running builds, view artifacts, describe config.
 - **Test reports** — JUnit-plugin browser (suites → cases → detail) with status colorization and full filter/sort; HTML Publisher launcher (pytest-html, allure, …) opens reports in the system browser.
+- **Pipeline graph** — Blue Ocean style ASCII view of a Pipeline run's DAG, with parallel branches drawn using `├─/└─` markers and per-node drill-in to step lists and step/aggregated logs.
 - **Job toggle** — single `Shift+E` to toggle Enable/Disable; `e` reserved for future edit.
 - **Sorting** — `Shift+N`/`Shift+S`/`Shift+R`/`Shift+A` per view (name/status/result/age depending on context).
 - **Bookmarks** — save the current view path and jump back later.
@@ -143,6 +144,7 @@ j9s --logFile /tmp/j9s.log --logLevel debug
 | `l` | Logs of last build |
 | `t` | JUnit test report (suites → cases → detail) |
 | `h` | HTML Publisher reports (open in system browser) |
+| `p` | Pipeline graph (Blue Ocean DAG) for last build |
 | `v` | Switch to Views |
 | `Shift+E` | Toggle Enable/Disable |
 | `Ctrl+D` | Delete |
@@ -156,6 +158,7 @@ j9s --logFile /tmp/j9s.log --logLevel debug
 | `d` | Describe |
 | `a` / `l` | Artifacts / Logs (ViewJobs) |
 | `t` / `h` | JUnit tests / HTML reports (ViewJobs) |
+| `p` | Pipeline graph (ViewJobs) |
 | `v` | Switch to Views |
 
 ### Builds view
@@ -167,6 +170,7 @@ j9s --logFile /tmp/j9s.log --logLevel debug
 | `a` | Artifacts |
 | `t` | JUnit test report for this build |
 | `h` | HTML Publisher reports for this build |
+| `p` | Pipeline graph for this build |
 | `s` | Stop running build |
 | `Shift+N` / `Shift+R` / `Shift+A` | Sort by number / result / age |
 
@@ -217,6 +221,7 @@ Resource commands accept a path argument and push the matching nested view onto 
 | `:logs team-a/sub/deploy/42` | Console output of build #42 |
 | `:tests team-a/sub/deploy/42` | JUnit test report (suites → cases → detail) for build #42 |
 | `:reports team-a/sub/deploy/42` | HTML Publisher reports attached to build #42 |
+| `:pipeline team-a/sub/deploy/42` | Blue Ocean pipeline graph for build #42 (aliases: `pipe`, `pl`, `bo`) |
 | `:views team-a` | Jenkins views inside folder `team-a` |
 | `:ctx prod` | Switch active Jenkins context to `prod` |
 
