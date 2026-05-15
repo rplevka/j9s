@@ -1,4 +1,4 @@
-module github.com/roman-plevka/j9s
+module github.com/rplevka/j9s
 
 go 1.22
 
