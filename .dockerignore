@@ -1,0 +1,10 @@
+.git
+.github
+.windsurf
+bin
+dist
+*.md
+!README.md
+Dockerfile
+.dockerignore
+.gitignore
