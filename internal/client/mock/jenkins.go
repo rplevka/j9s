@@ -20,7 +20,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/roman-plevka/j9s/internal/client"
+	"github.com/rplevka/j9s/internal/client"
 )
 
 // JobOpts customises a job entry on the fake server.

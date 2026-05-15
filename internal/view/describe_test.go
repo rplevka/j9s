@@ -6,7 +6,7 @@ package view
 import (
 	"testing"
 
-	"github.com/roman-plevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 

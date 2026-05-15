@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/roman-plevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/config"
 )
 
 // Client represents a Jenkins API client.

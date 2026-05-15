@@ -6,8 +6,8 @@ package mock
 import (
 	"testing"
 
-	"github.com/roman-plevka/j9s/internal/client"
-	"github.com/roman-plevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/client"
+	"github.com/rplevka/j9s/internal/config"
 )
 
 // NewMockConfig builds a *config.Config with a single context named "test"

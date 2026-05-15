@@ -6,7 +6,7 @@ package main
 import (
 	"os"
 
-	"github.com/roman-plevka/j9s/cmd"
+	"github.com/rplevka/j9s/cmd"
 )
 
 func main() {

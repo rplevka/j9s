@@ -6,7 +6,7 @@ package view
 import (
 	"github.com/atotto/clipboard"
 	"github.com/derailed/tcell/v2"
-	"github.com/roman-plevka/j9s/internal/ui"
+	"github.com/rplevka/j9s/internal/ui"
 )
 
 // AddGlobalKeys adds common global keys to a KeyActions map.

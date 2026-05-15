@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/roman-plevka/j9s/internal/client"
+	"github.com/rplevka/j9s/internal/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

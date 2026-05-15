@@ -14,7 +14,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/roman-plevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/config"
 )
 
 // BuildMeta represents cached build metadata.

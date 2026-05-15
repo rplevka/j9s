@@ -13,9 +13,9 @@ import (
 
 	"github.com/derailed/tcell/v2"
 	"github.com/derailed/tview"
-	"github.com/roman-plevka/j9s/internal/cache"
-	"github.com/roman-plevka/j9s/internal/model"
-	"github.com/roman-plevka/j9s/internal/ui"
+	"github.com/rplevka/j9s/internal/cache"
+	"github.com/rplevka/j9s/internal/model"
+	"github.com/rplevka/j9s/internal/ui"
 )
 
 const (

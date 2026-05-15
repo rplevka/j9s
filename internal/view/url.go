@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/roman-plevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/config"
 )
 
 // URLProvider is an interface for views that can provide their Jenkins URL.

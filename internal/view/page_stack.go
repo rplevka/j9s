@@ -7,7 +7,7 @@ import (
 	"context"
 
 	"github.com/derailed/tview"
-	"github.com/roman-plevka/j9s/internal/model"
+	"github.com/rplevka/j9s/internal/model"
 )
 
 // PageStack manages a stack of pages.

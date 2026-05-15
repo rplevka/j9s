@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/roman-plevka/j9s/internal/cache"
+	"github.com/rplevka/j9s/internal/cache"
 	"github.com/sahilm/fuzzy"
 )
 

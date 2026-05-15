@@ -23,13 +23,13 @@ A terminal UI for managing Jenkins instances, inspired by [k9s](https://github.c
 ## Installation
 
 ```bash
-go install github.com/roman-plevka/j9s@latest
+go install github.com/rplevka/j9s@latest
 ```
 
 Or build from source (always produces `bin/j9s`):
 
 ```bash
-git clone https://github.com/roman-plevka/j9s.git
+git clone https://github.com/rplevka/j9s.git
 cd j9s
 make build      # → bin/j9s
 make install    # → $GOPATH/bin/j9s

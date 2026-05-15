@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/derailed/tcell/v2"
-	"github.com/roman-plevka/j9s/internal/model"
+	"github.com/rplevka/j9s/internal/model"
 )
 
 type (

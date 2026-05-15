@@ -12,8 +12,8 @@ import (
 
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-colorable"
-	"github.com/roman-plevka/j9s/internal/config"
-	"github.com/roman-plevka/j9s/internal/view"
+	"github.com/rplevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/view"
 	"github.com/spf13/cobra"
 )
 

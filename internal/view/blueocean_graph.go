@@ -6,7 +6,7 @@ package view
 import (
 	"strings"
 
-	"github.com/roman-plevka/j9s/internal/client"
+	"github.com/rplevka/j9s/internal/client"
 )
 
 // GraphRow is one rendered row of the pipeline graph: the source

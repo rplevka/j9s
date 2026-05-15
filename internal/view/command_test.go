@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/derailed/tview"
-	"github.com/roman-plevka/j9s/internal/config"
-	"github.com/roman-plevka/j9s/internal/model"
+	"github.com/rplevka/j9s/internal/config"
+	"github.com/rplevka/j9s/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
